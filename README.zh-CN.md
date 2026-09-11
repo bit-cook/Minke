@@ -5,7 +5,7 @@
 <h1 align="center">Minke</h1>
 
 <p align="center">
-  <strong>为 DeepSeek Harness 打造的原生桌面工作空间</strong>
+  <strong>基于 DeepSeek Harness 的本地优先桌面智能体工作空间</strong>
 </p>
 
 <p align="center">
@@ -19,21 +19,22 @@
   <a href="https://www.buymeacoffee.com/lencx"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="请我喝杯咖啡" height="20"></a>
 </p>
 
-Minke 在本地运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，将它带入一个专注、本地优先的智能体桌面工作空间。对话、项目文件、终端、网页工具和原生桌面操作始终触手可及，无需在多个应用之间切换，让工作流保持完整。
+Minke 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的本地优先桌面智能体工作空间。你可以围绕对话、项目文件、终端和可见的浏览器标签页与 Agent 协作，随时接管网页操作、检查和编辑产出的文件，也可以从其他设备访问工作空间。
 
 > [!IMPORTANT]
-> Minke 正在持续开发中，功能、打包方式和本地数据结构可能随项目迭代发生变化。Minke 是独立的社区项目，并非 DeepSeek 官方产品。
+> Minke 正在持续开发中，功能、打包方式和本地数据结构可能随项目迭代发生变化。本 README 描述当前源码，已发布安装包的功能可能有所不同。Minke 是独立的社区项目，并非 DeepSeek 官方产品。
 
 ## 核心亮点
 
-Minke 将 Agent、浏览器、终端、文件和本机工具收拢在一个可配置的桌面工作空间中。
+Minke 在 Harness 智能体能力的基础上，提供浏览器共同控制、桌面工作空间、远程访问和本地模型管理。
 
 - **Agent Browser 与人机协作** — Agent 可以在可见的浏览器标签页中搜索、打开并操作网页；你可以在不关闭当前标签页的情况下接管、完成后交还给 Agent，也可以把带标注的页面上下文发回对话。
-- **完整的桌面工作空间** — 右侧栏和底栏把文件管理器、终端、浏览器、浏览历史与插件放在对话旁边，并通过原生菜单和可自定义快捷键快速访问。
-- **本地优先** — Session、设置、浏览历史和浏览器会话数据都保留在你的电脑上。
-- **在常用设备和应用中远程使用** — 通过响应式 Web 工作空间，或微信、Telegram 与 Discord 继续任务，并可使用基于 Tailscale 和 Cloudflare 的私密访问方案。
-- **本地模型支持** — 发现并连接 LM Studio、Ollama 及其他仅监听本机回环地址的 OpenAI 兼容服务，同时保留对现有服务的控制权。
-- **跨平台桌面支持** — Minke 支持 macOS、Windows 和 Linux，并提供原生桌面集成、内置更新、主题同步及中英文界面。
+- **灵活的工作空间与文件编辑** — 通过 Harness 侧栏的分屏、浮动和全屏标签页，以及 Minke 独立的底栏，将文件、终端、网页、浏览历史和插件放在对话旁边。直接编辑源码、查看 Diff，并预览 Markdown 和 HTML 草稿。
+- **智能体工作流与会话历史** — 使用 Harness 的智能体预设（Agent Presets）、计划、目标、技能和子代理。通过对话轮次目录浏览长会话、跳转到早期轮次、导出会话日志，也可以让 Agent 安排会话内的定时跟进。
+- **在常用设备和应用中远程使用** — 从手机或其他电脑打开支持 PWA 的响应式 Web 工作空间，或通过微信、Telegram 与 Discord 向 Minke 电脑上的 Agent 发起任务。Web 私密访问支持 Tailscale 和 Cloudflare Access。
+- **云端与本地模型** — 使用 Harness 的模型提供方和自定义端点，并通过 Minke 发现 LM Studio、Ollama 中的模型，按需启用服务自动启动。其他仅监听本机回环地址的 OpenAI 兼容服务也可手动配置。
+- **可查看运行状态的插件管理** — 发现、安装、启用或禁用 Harness 插件，并查看运行中、加载中或加载失败等状态。遇到启动问题时，可通过安全模式排查，同时保留已安装插件。
+- **桌面集成与本地存储** — macOS、Windows 和 Linux 版本提供原生菜单、自定义快捷键、内置更新、主题同步及中英文界面。Session、设置、浏览历史和浏览器会话数据保留在你的电脑上。
 
 <table>
   <tr>
@@ -174,6 +175,8 @@ sudo dnf install "/path/to/minke-package.rpm"
 ## 从源码构建
 
 请在与目标安装包相同的操作系统和 CPU 架构上构建 Minke。构建产物位于 `out/make`，本项目不支持在单一宿主机上进行跨平台打包。
+
+内置 Harness 的版本、源码提交和应用的补丁记录在 [runtime 配置](./config/harness-runtime.json)中。
 
 环境依赖：
 

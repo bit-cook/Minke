@@ -5,7 +5,7 @@
 <h1 align="center">Minke</h1>
 
 <p align="center">
-  <strong>A native desktop workspace for DeepSeek Harness</strong>
+  <strong>A local-first desktop agent workspace powered by DeepSeek Harness</strong>
 </p>
 
 <p align="center">
@@ -19,21 +19,22 @@
   <a href="https://www.buymeacoffee.com/lencx"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" height="20"></a>
 </p>
 
-Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) to the desktop as a focused, local-first workspace for agentic work. Conversations, project files, terminals, web tools, and native desktop actions stay within reach—without fragmenting your workflow across multiple apps.
+Minke is a local-first desktop agent workspace powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Work with an agent across conversations, project files, terminals, and visible browser tabs. Take over a page when needed, review and edit the resulting files, or access your workspace from another device.
 
 > [!IMPORTANT]
-> Minke is under active development. Features, packaging, and the local data schema may change as the project evolves. Minke is an independent community project, not an official DeepSeek product.
+> Minke is under active development. Features, packaging, and the local data schema may change as the project evolves. This README describes the current source; packaged releases may differ. Minke is an independent community project, not an official DeepSeek product.
 
 ## Highlights
 
-Minke combines agentic browsing, local tools, remote access, and native desktop controls in one focused workspace.
+Minke builds on Harness's agent capabilities with shared browser control, an integrated desktop workspace, remote access, and local model management.
 
 - **Agent Browser with shared control** — Agents can search, open, and interact with the Web in visible browser tabs. Take control of a live tab without closing it, hand it back when ready, or send annotated page context to the conversation.
-- **A complete desktop workspace** — Right and bottom panels keep Files, Terminal, Browser, Browser History, and Plugins beside the conversation, with native menus and customizable shortcuts for quick access.
-- **Local-first by design** — Sessions, settings, Browser History, and browser session data remain on your machine.
-- **Remote access where you already work** — Continue tasks from a responsive Web workspace or through WeChat, Telegram, and Discord, with private access options built around Tailscale and Cloudflare.
-- **Local model support** — Discover and connect to LM Studio, Ollama, and other loopback OpenAI-compatible services without giving up control of services you already run.
-- **Cross-platform desktop support** — Minke supports macOS, Windows, and Linux with native desktop integration, built-in updates, synchronized themes, and English and Chinese UI.
+- **Flexible workspace and file editing** — Arrange Files, Terminal, Web, Browser History, and Plugins beside the conversation using Harness's split, floating, and fullscreen sidebar tabs, plus Minke's independent bottom panel. Edit source, review diffs, and preview Markdown and HTML drafts in place.
+- **Agent workflows and conversation history** — Use Harness's Agent Presets, planning, goals, skills, and subagents. Navigate long conversations through the turn outline, jump to earlier turns, export session logs, and ask the agent to schedule follow-ups in the conversation.
+- **Remote access where you already work** — Open your workspace from a phone or another computer through a responsive Web client with PWA support, or use WeChat, Telegram, and Discord to run tasks on the Minke computer. Private Web access supports Tailscale and Cloudflare Access.
+- **Cloud and local models** — Use Harness's model providers and custom endpoints, with Minke's model discovery and optional service auto-start for LM Studio and Ollama. Other loopback OpenAI-compatible services can be configured manually.
+- **Plugins with visible runtime status** — Discover and install Harness plugins, enable or disable them, and see whether they are running, loading, or failed. Safe mode helps troubleshoot startup while preserving installed plugins.
+- **Desktop integration and local storage** — macOS, Windows, and Linux builds provide native menus, customizable shortcuts, built-in updates, synchronized themes, and English and Chinese UI. Sessions, settings, Browser History, and browser session data remain on your machine.
 
 <table>
   <tr>
@@ -193,6 +194,8 @@ Replace the example path with the downloaded package path.
 ## Build from source
 
 Build Minke on the same operating system and CPU architecture as the package you need. The build produces distributables for the current host under `out/make`; this project does not support cross-platform packaging from a single host.
+
+The bundled Harness version, source commit, and applied patches are recorded in the [runtime configuration](./config/harness-runtime.json).
 
 Prerequisites:
 
