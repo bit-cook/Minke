@@ -88,9 +88,11 @@ scroller. Cards shrink within narrow panes so their text cannot widen the page.
 
 The Files editor offers Preview, Source and Diff for Markdown and HTML files.
 Preview renders the current draft through DSH's document bodies; changing modes
-does not save or discard edits. In preview headers narrower than 360px, one More
-menu contains the view modes, system-open action and close action. Wider headers
-retain the direct buttons. DSH's native document tabs keep their own viewer menu.
+does not save or discard edits. In preview headers narrower than 280px, one More
+menu contains the view modes and the action to open the file's containing folder
+in the system file manager. Wider headers retain those direct buttons; Close
+remains outside the menu at every width and still guards unsaved drafts.
+DSH's native document tabs keep their own viewer menu.
 Native code previews use DSH's source scrollport below the Copy banner; the
 earlier Minke scrollbar-gutter background compensation is no longer needed.
 

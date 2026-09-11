@@ -6,7 +6,7 @@ const { join } = require('node:path');
 const { nativeTheme, webContents } = require('electron');
 
 /** Exercises the production renderer in a blank Session, before its header exists. */
-async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererValue, waitFor, workspace }) {
+async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererValue, waitFor, workspace, openedFilePaths }) {
   await writeFile(join(workspace, 'sidebar-code.ts'), Array.from({ length: 180 }, (_, index) =>
     `export const value${index} = ${JSON.stringify('Native code preview '.repeat(16))};`).join('\n'));
   const pressEnter = () => {
@@ -398,7 +398,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') === null`), 'bottom panel collapse');
   assert.equal(await rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel][data-sidebar-right-open]') !== null`), true, 'bottom toggle leaves the native Sidebar open');
   process.stdout.write('[sidebar-ui] retained state, close guard, native previews and bottom controls passed\n');
-  await require('./files-preview-ui.cjs').verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace, click, pressKey });
+  await require('./files-preview-ui.cjs').verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace, click, pressKey, openedFilePaths });
 }
 
 module.exports = { verifyNativeSidebarUI };

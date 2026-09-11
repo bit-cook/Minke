@@ -20,7 +20,7 @@ export function PreviewActions({ tabId, preview, controller, t, active }: {
     if (!header || !view?.ResizeObserver) return;
     const update = () => {
       const width = header.getBoundingClientRect().width;
-      if (width > 0) setCompact(width < 360);
+      if (width > 0) setCompact(width < 280);
     };
     update();
     const observer = new view.ResizeObserver(update);
@@ -43,21 +43,19 @@ export function PreviewActions({ tabId, preview, controller, t, active }: {
     if (preview.saving) return;
     const view = ref.current?.ownerDocument.defaultView;
     if (preview.dirty && view && !view.confirm(t("files.preview.discardConfirm", { name: preview.entry.name }))) return;
+    setOpen(false);
     controller.closePreview(tabId);
   };
-  const actions = [
-    ...(controller.nativeOpenAvailable ? [{
-      id: "open-system", label: t("files.preview.openSystem"), icon: <OpenSystemIcon size={15} />,
-      create: () => controller.open(tabId, preview.entry.path), disabled: false,
-    }] : []),
-    { id: "close", label: t("files.preview.close"), icon: <ClosePreviewIcon size={15} />, create: close, disabled: preview.saving },
-  ];
+  const actions = controller.nativeOpenAvailable ? [{
+    id: "open-folder", label: t("files.preview.openFolder"), icon: <OpenSystemIcon size={15} />,
+    create: () => controller.openContainingFolder(tabId, preview.entry.path),
+  }] : [];
   const options: TabsCreateMenuOption[] = [
     ...modes.map(mode => ({ ...mode, checked: preview.mode === mode.id, group: t("files.preview.mode.group"), create: () => controller.setPreviewMode(tabId, mode.id) })),
     ...actions.map(action => ({ ...action, group: t("files.preview.actions") })),
   ];
   return <div ref={ref} className="minke-files-preview__actions" data-compact={compact || undefined}>
-    {compact ? <button ref={setAnchor} type="button" aria-label={t("files.preview.more")} title={t("files.preview.more")}
+    {compact ? options.length > 0 && <button ref={setAnchor} type="button" aria-label={t("files.preview.more")} title={t("files.preview.more")}
       aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
       onClick={() => setOpen(value => !value)} onKeyDown={event => {
         if (event.key === "ArrowDown") { event.preventDefault(); setOpen(true); }
@@ -67,8 +65,10 @@ export function PreviewActions({ tabId, preview, controller, t, active }: {
           aria-pressed={preview.mode === mode.id} disabled={mode.disabled} onClick={() => controller.setPreviewMode(tabId, mode.id)}>{mode.icon}</button>)}
       </div>}
       {actions.map(action => <button key={action.id} type="button" aria-label={action.label} title={action.label}
-        disabled={action.disabled} onClick={action.create}>{action.icon}</button>)}
+        onClick={action.create}>{action.icon}</button>)}
     </>}
+    <button type="button" aria-label={t("files.preview.close")} title={t("files.preview.close")}
+      disabled={preview.saving} onClick={close}><ClosePreviewIcon size={15} /></button>
     <TabsCreateMenu anchor={anchor} context={{}} id={menuId} label={t("files.preview.more")} open={open && compact && active}
       onClose={() => setOpen(false)} onCreated={() => anchor?.focus({ preventScroll: true })} options={options} placement="right" />
   </div>;

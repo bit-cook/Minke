@@ -62,3 +62,24 @@ test("preview switches retain drafts and lazy diff; unsupported and incomplete d
     }
   } finally { files.dispose(); tabs.dispose(); }
 });
+
+test("file location opens the containing folder for POSIX, drive-root and UNC paths", () => {
+  const tabs = new TabsRuntime({ showPanel() {}, hidePanel() {} });
+  const opened = [];
+  const files = new FilesTabsController(tabs, {
+    available: true,
+    async open({ path }) { opened.push(path); },
+  });
+  try {
+    for (const [path, folder] of [
+      ["/workspace/src/main.ts", "/workspace/src"],
+      ["/README.md", "/"],
+      ["C:\\work\\main.ts", "C:\\work"],
+      ["C:\\main.ts", "C:\\"],
+      ["\\\\server\\share\\src\\main.ts", "\\\\server\\share\\src"],
+    ]) {
+      files.openContainingFolder("files-1", path);
+      assert.equal(opened.at(-1), folder);
+    }
+  } finally { files.dispose(); tabs.dispose(); }
+});

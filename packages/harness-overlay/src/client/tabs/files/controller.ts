@@ -695,6 +695,10 @@ export class FilesTabsController {
     this.#tabs.update<FilesTabPayload>(tabId, { payload });
   }
 
+  openContainingFolder(tabId: string, path: string): void {
+    this.open(tabId, parentPath(path));
+  }
+
   open(tabId: string, path: string): void {
     if (this.#disposed || !this.nativeOpenAvailable) {
       return;

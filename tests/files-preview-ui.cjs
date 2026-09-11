@@ -6,7 +6,7 @@ const { join } = require('node:path');
 const { nativeTheme } = require('electron');
 
 /** Runs against the production renderer and DSH document slots, with real local files. */
-async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace, click, pressKey }) {
+async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace, click, pressKey, openedFilePaths }) {
   workspace = await realpath(workspace);
   await Promise.all([
     writeFile(join(workspace, 'preview-notes.md'), '# Rendered notes\n\n**Bold text**\n\n| Name | Value |\n| --- | --- |\n| Preview | Ready |\n'),
@@ -46,7 +46,10 @@ async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace,
       const previous = await readWidth();
       // The accessible divider moves in 16px steps. Wait for each React commit
       // before sending the next key, just as a user holds or repeats an arrow.
-      if (Math.abs(previous - width) < 16) return;
+      if (Math.abs(previous - width) < 16) {
+        await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+        return;
+      }
       pressKey((width > previous) === right ? 'Right' : 'Left');
       await waitFor(async () => Math.abs(await readWidth() - previous) > 1, 'preview divider keyboard resize', 8_000);
     }
@@ -80,6 +83,8 @@ async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace,
   await resizePreview(520);
   await waitFor(() => rendererValue(window, `() => document.querySelector('${host} button[aria-label="Preview"]') !== null`), 'wide preview controls');
   await capture('wide-markdown');
+  await resizePreview(310);
+  await waitFor(() => rendererValue(window, `() => document.querySelector('${host} button[aria-label="Preview"]') !== null && document.querySelector('${host} button[aria-label="More file actions"]') === null`), '300px preview retains direct actions', 2_000);
   await click('[data-sidebar-right-mode="push"]');
   window.setContentSize(980, 800);
   await waitFor(() => rendererValue(window, `() => innerWidth === 980 && document.querySelector('${host}').getBoundingClientRect().width < 980`), 'docked host geometry');
@@ -91,14 +96,15 @@ async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace,
     const header = document.querySelector('${host} .minke-files-preview__header');
     const title = header.querySelector('strong').getBoundingClientRect();
     const buttons = [...header.querySelectorAll('button')];
-    return { buttons: buttons.length, titleWidth: title.width, overlap: title.right > buttons[0].getBoundingClientRect().left };
+    return { buttons: buttons.map(button => button.getAttribute('aria-label')), titleWidth: title.width, overlap: title.right > buttons[0].getBoundingClientRect().left };
   }`);
-  assert.ok(geometry.buttons === 1 && geometry.titleWidth > 60 && !geometry.overlap, JSON.stringify(geometry));
+  assert.deepEqual(geometry.buttons, ['More file actions', 'Close preview']);
+  assert.ok(geometry.titleWidth > 60 && !geometry.overlap, JSON.stringify(geometry));
   await click(more);
   const menu = '[role="menu"][aria-label="More file actions"]';
   await waitFor(() => rendererValue(window, `() => document.querySelector('${menu} [data-option="preview"]') !== null`), 'mounted file actions menu', 8_000);
   const labels = await rendererValue(window, `() => [...document.querySelectorAll('${menu} button')].map(button => button.textContent.trim())`);
-  assert.deepEqual(labels, ['Preview', 'Source', 'Diff', 'Open in default app', 'Close preview']);
+  assert.deepEqual(labels, ['Preview', 'Source', 'Diff', 'Open containing folder']);
   assert.equal(await rendererValue(window, `() => document.querySelector('${menu} [data-option="preview"]').getAttribute('aria-checked')`), 'true');
   await capture('compact-menu');
   nativeTheme.themeSource = 'dark';
@@ -111,8 +117,19 @@ async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace,
   await waitFor(() => rendererValue(window, `() => document.querySelector('${host} .minke-files-preview__state')?.textContent.includes('not in a Git repository')`), 'diff remains accessible');
   await choose('source');
   assert.equal(await rendererValue(window, `() => document.querySelector('${host} .cm-content')?.textContent.includes('Unsaved preview')`), true, 'all three modes retain the draft');
+  const openedBefore = openedFilePaths.length;
+  await click(more);
+  await click(`${menu} [data-option="open-folder"]`);
+  await waitFor(() => openedFilePaths.length === openedBefore + 1, 'containing folder opened');
+  assert.equal(openedFilePaths.at(-1), workspace, 'file jump opens its directory, not the file in a default application');
+  assert.equal(await rendererValue(window, `() => document.querySelector('${host} .cm-content')?.textContent.includes('Unsaved preview')`), true, 'opening the containing folder preserves the draft');
+  await rendererValue(window, '() => { window.confirm = () => false; return true; }');
+  await click(`${host} button[aria-label="Close preview"]`);
+  assert.equal(await rendererValue(window, `() => document.querySelector('${host} .minke-files-preview__dirty') !== null`), true, 'the persistent close button still guards unsaved drafts');
   // The fixture owns its draft; permit switching files without saving to disk.
   await rendererValue(window, '() => { window.confirm = () => true; return true; }');
+  await click(`${host} button[aria-label="Close preview"]`);
+  await waitFor(() => rendererValue(window, `() => document.querySelector('${host} .minke-files-preview') === null`), 'persistent close button closes the preview');
   await openFile('preview-page.html');
   await choose('preview');
   const frame = await waitFor(async () => {

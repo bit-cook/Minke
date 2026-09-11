@@ -875,12 +875,14 @@ async function run() {
       },
     });
     const harnessOrigin = harnessEndpoint.origin;
+    const openedFilePaths = [];
     tabsBinding = bindTabs(
       ipcMain,
       window.webContents,
       {
         async openExternal() {},
-        async openPath() {
+        async openPath(path) {
+          openedFilePaths.push(path);
           return '';
         },
       },
@@ -963,7 +965,7 @@ async function run() {
       'minke-agent-browser-conversation-e2e',
     );
     if (process.env.MINKE_SIDEBAR_UI_E2E === '1') {
-      await require('./native-sidebar-ui.cjs').verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl: fixture.url, rendererValue, waitFor, workspace });
+      await require('./native-sidebar-ui.cjs').verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl: fixture.url, rendererValue, waitFor, workspace, openedFilePaths });
       return;
     }
     await rpc(harnessUrl, 'session/prompt', {
