@@ -133,11 +133,16 @@ function markComposerActions(
       ?.nextElementSibling;
     if (!(row instanceof view.HTMLElement)) continue;
 
-    const add = row.firstElementChild?.querySelector(
-      'button[aria-haspopup="listbox"]',
-    );
-    if (add instanceof view.HTMLButtonElement) {
-      add.setAttribute("data-dsh-desktop-composer-add", "");
+    const tools = row.firstElementChild;
+    const addActions = [
+      tools?.querySelector('button[aria-haspopup="listbox"]'),
+      // Anchor the attachment action to its file input across locales.
+      tools?.querySelector('input[type="file"]')?.previousElementSibling,
+    ];
+    for (const add of addActions) {
+      if (add instanceof view.HTMLButtonElement) {
+        add.setAttribute("data-dsh-desktop-composer-add", "");
+      }
     }
 
     const primaryButtons =
