@@ -55,7 +55,9 @@
 }
 
 [data-minke-tabs-bottom-open]
-  .minke-tabs-panel[data-placement="right"] {
+  .minke-tabs-panel[data-placement="right"],
+[data-minke-tabs-bottom-open]
+  [data-sidebar-right-panel="push"] {
   bottom: var(--minke-tabs-panel-height);
 }
 

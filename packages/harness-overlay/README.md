@@ -85,6 +85,9 @@ with the Minke card list below them. Native descriptions appear for up to four
 entries and remain owned by the registering plugin's locale.
 Start fills at least the pane's available height and uses the native pane's
 scroller. Cards shrink within narrow panes so their text cannot widen the page.
+The docked native Sidebar reserves the bottom panel's current height, including
+while resizing it, so its content scrolls above that panel. Fullscreen retains
+the entire window, and closing the bottom panel restores the docked Sidebar's height.
 
 The Files editor offers Preview, Source and Diff for Markdown and HTML files.
 Preview renders the current draft through DSH's document bodies; changing modes

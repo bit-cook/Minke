@@ -145,6 +145,63 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
       `${state}: Start cards must fit the pane without horizontal scrolling: ${JSON.stringify(bounds)}`);
   };
   await assertGuideLayout('initial Sidebar');
+  await click('[data-minke-new-session-tabs-action] [data-minke-tabs-placement="bottom"]');
+  await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') !== null`), 'bottom panel beside Start');
+  const assertBottomLayout = async state => {
+    await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+    await rendererValue(window, `() => {
+      let viewport = document.querySelector('.minke-tabs-native-guide').parentElement;
+      while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
+      viewport.scrollTop = viewport.scrollHeight;
+      return true;
+    }`);
+    await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+    const bounds = await rendererValue(window, `() => {
+      const guide = document.querySelector('.minke-tabs-native-guide');
+      let viewport = guide.parentElement;
+      while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
+      const panel = guide.closest('[data-sidebar-right-panel]');
+      const bottom = document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]');
+      const last = [...guide.querySelectorAll('[data-option]')].at(-1);
+      return {
+        rightBottom: panel.getBoundingClientRect().bottom,
+        bottomTop: bottom.getBoundingClientRect().top,
+        scrollTop: viewport.scrollTop,
+        lastBottom: last.getBoundingClientRect().bottom,
+      };
+    }`);
+    assert.ok(bounds.rightBottom <= bounds.bottomTop + 1,
+      state + ': the native Sidebar must end above the bottom panel: ' + JSON.stringify(bounds));
+    assert.ok(bounds.scrollTop > 0 && bounds.lastBottom <= bounds.bottomTop,
+      state + ': Start must scroll its final card above the bottom panel: ' + JSON.stringify(bounds));
+  };
+  await assertBottomLayout('bottom open');
+  const bottomResize = '.minke-tabs-panel[data-placement="bottom"][data-open] [data-minke-tabs-resize-handle]';
+  const bottomHeight = await rendererValue(window, `() => {
+    const handle = document.querySelector('${bottomResize}');
+    handle.focus();
+    return Number(handle.getAttribute('aria-valuenow'));
+  }`);
+  pressKey('Up');
+  await waitFor(() => rendererValue(window, `() => Number(document.querySelector('${bottomResize}').getAttribute('aria-valuenow')) > ${bottomHeight}`), 'bottom panel expanded');
+  await assertBottomLayout('bottom resized');
+  pressKey('Down');
+  await waitFor(() => rendererValue(window, `() => Number(document.querySelector('${bottomResize}').getAttribute('aria-valuenow')) === ${bottomHeight}`), 'bottom height restored');
+  await click('[data-sidebar-right-mode="fullscreen"]');
+  await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="fullscreen"]')?.getBoundingClientRect().bottom === innerHeight`), 'fullscreen retains the entire viewport with bottom open');
+  await click('[data-sidebar-right-mode="push"]');
+  await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="push"]') !== null`), 'docked beside bottom again');
+  await assertBottomLayout('after fullscreen');
+  if (process.env.MINKE_SIDEBAR_SCREENSHOT) await writeFile(`${process.env.MINKE_SIDEBAR_SCREENSHOT}.start-with-bottom.png`, (await window.webContents.capturePage()).toPNG());
+  await click('[data-minke-new-session-tabs-action] [data-minke-tabs-placement="bottom"]');
+  await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') === null`), 'bottom panel closed after Start scroll');
+  await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="push"]').getBoundingClientRect().bottom === innerHeight`), 'Sidebar regains its full height');
+  await rendererValue(window, `() => {
+    let viewport = document.querySelector('.minke-tabs-native-guide').parentElement;
+    while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
+    viewport.scrollTop = 0;
+    return true;
+  }`);
   const panelWidth = await rendererValue(window, `() => {
     const panel = document.querySelector('[data-sidebar-right-panel]');
     const width = panel.style.width;
