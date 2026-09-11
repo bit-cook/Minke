@@ -226,7 +226,7 @@ function hasNamedImport(ast, source, name) {
 }
 
 function catalogAppLaunch(ast, path) {
-  // Harness 0.1.5-alpha.2 / b2e3b2a012, packages/host/open-in-app/src/resolver.ts:
+  // Harness dsh-v0.1.5-rc.2 / fb2c4b9e69, packages/host/open-in-app/src/resolver.ts:
   // launchDetachedApp owns user-selected GUI launches and retains each catalog
   // adapter's visibility. Its pinned vendor source must remain pristine; forcing
   // windowsHide would change that behavior. Minke's staging policy owns this

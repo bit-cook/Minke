@@ -4,7 +4,7 @@ Minke keeps `vendor/deepseek-harness` pinned and pristine. Local fixes that cann
 
 The applicator accepts git unified diffs that modify existing text files below `node_modules/@deepseek-ai/`. It rejects path escapes, file creation/deletion, renames, binary patches, stale hunks, and skipped patches. Patch contents are part of the runtime fingerprint and metadata; validation also reverse-checks that every declared patch is present before publishing or fast refresh.
 
-`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.5-alpha.2` (`b2e3b2a0125854567a4a5fcba75782e42fe84901`). It:
+`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.5-rc.2` (`fb2c4b9e698e30edb738bca4cf0618587db7d203`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
 - keeps the dialog worker's IPC channel open through non-terminal `showing` progress and disconnects only after a terminal result.
@@ -100,7 +100,7 @@ The earlier 0.1.2-alpha.3 release removes only Harness's optional SQLite Session
 Minke's IM Gateway SQLite mailbox is a separate desktop transport store and is
 not part of that Session persistence contract.
 
-The 0.1.5-alpha.2 runtime uses Session v3 and lifecycle-scoped SessionHandles.
+The 0.1.5-rc.2 runtime uses Session v3 and lifecycle-scoped SessionHandles.
 Minke's staged entry invokes the exported `runCli()` after loading its Node
 bootstrap; importing the upstream CLI no longer dispatches a command.
 Minke delegates Session creation, inspection, follow streams, and export to
