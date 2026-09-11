@@ -46,6 +46,8 @@ import {
 import type {
   ManagedTab,
 } from "./types.ts";
+import type { NativeTabsRuntime } from "./native/runtime.ts";
+import { NativeTabViewport, NativeTabsContent } from "./native/views.tsx";
 
 interface SessionListSelection {
   current: string | undefined;
@@ -71,6 +73,7 @@ const drawerFocusableSelector = [
 ].join(",");
 
 export interface TabsPanelProps {
+  native?: NativeTabsRuntime;
   placement: TabsPanelPlacement;
   runtime: TabsRuntime;
   renderers: TabRendererRegistry;
@@ -111,6 +114,7 @@ function UnsupportedTabView(props: {
 
 /** Generic dockable tab shell; content behavior arrives through renderers. */
 export function TabsPanel({
+  native,
   placement,
   runtime,
   renderers,
@@ -121,11 +125,13 @@ export function TabsPanel({
   useSessions,
   t,
 }: TabsPanelProps): ReactNode {
-  const snapshot = useSyncExternalStore(
+  const contentSnapshot = useSyncExternalStore(
     runtime.subscribe,
     runtime.getSnapshot,
     runtime.getSnapshot,
   );
+  useSyncExternalStore(native?.subscribe ?? ignorePresentationChanges, native?.getSnapshot ?? (() => 0), () => 0);
+  const snapshot = native?.active ? { ...contentSnapshot, visible: false } : contentSnapshot;
   useSyncExternalStore(
     renderers.subscribe,
     renderers.getSnapshot,
@@ -423,9 +429,15 @@ export function TabsPanel({
       aria-label={t("panel.label")}
       aria-hidden={!snapshot.visible}
       aria-owns={
-        drawer && choosingType ? createMenuId : undefined
+        drawer ? [
+          choosingType ? createMenuId : undefined,
+          native && snapshot.activeId ? `minke-tab-host-${snapshot.activeId}` : undefined,
+        ].filter(Boolean).join(" ") || undefined : undefined
       }
       onKeyDown={(event) => {
+        // The native adapter includes the portalled content in the dialog's
+        // keyboard scope; a DOM-subtree-only trap would skip those controls.
+        if (native && snapshot.activeId !== undefined) return;
         if (
           drawer &&
           snapshot.visible &&
@@ -623,7 +635,7 @@ export function TabsPanel({
               >
                   <button
                     type="button"
-                    id={`minke-tab-${tab.id}`}
+                    id={native?.active ? undefined : `minke-tab-${tab.id}`}
                     className="minke-tab__target"
                     role="tab"
                     aria-selected={active}
@@ -771,6 +783,7 @@ export function TabsPanel({
           />
         )}
         {hasTabs && snapshot.tabs.map((tab) => {
+          if (native) return <NativeTabViewport key={tab.id} native={native} id={tab.id} visible={!native.active && snapshot.visible && tab.id === snapshot.activeId} />;
           const renderer = renderers.get(tab.kind);
           const active = tab.id === snapshot.activeId;
           return renderer === undefined
@@ -790,6 +803,7 @@ export function TabsPanel({
         })}
       </div>
     </aside>
+    {native && <NativeTabsContent runtime={runtime} native={native} renderers={renderers} t={t} />}
     <TabsCreateMenu
       anchor={newTabButton}
       context={{ cwd }}

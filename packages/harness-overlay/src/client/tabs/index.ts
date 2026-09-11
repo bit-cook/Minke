@@ -6,7 +6,6 @@ export {
 } from "./bottom-toggle.ts";
 export {
   NewSessionTabsHeaderAction,
-  SessionLogHeaderAction,
   TabsHeaderAction,
 } from "./HeaderActions.ts";
 export {

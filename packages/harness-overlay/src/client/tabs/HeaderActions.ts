@@ -1,15 +1,9 @@
-import {
-  FileDown,
-} from "@lucide/icons";
+import { PanelHeaderIcon } from "../core/HeaderIcons.tsx";
 import {
   createElement,
-  useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import {
-  LucideIcon,
-} from "./components/LucideIcon.ts";
 import {
   tabsPanelId,
   type TabsPanelPlacement,
@@ -23,53 +17,12 @@ import type {
 import type {
   RightTabsPresentationPort,
 } from "./responsive-right-host.ts";
-
-export interface SessionLogHeaderActionProps {
-  sessionId: string;
-  exportSession(sessionId: string): Promise<void>;
-  t: TabsTranslate;
-}
-
-/** Export the current Session through Electron's native save workflow. */
-export function SessionLogHeaderAction({
-  sessionId,
-  exportSession,
-  t,
-}: SessionLogHeaderActionProps): ReactNode {
-  const [busy, setBusy] = useState(false);
-  const label = t("header.sessionLog");
-
-  const handleClick = (): void => {
-    if (busy) return;
-    setBusy(true);
-    void exportSession(sessionId)
-      .catch((error: unknown) => {
-        console.warn("Minke Session export failed:", error);
-      })
-      .finally(() => {
-        setBusy(false);
-      });
-  };
-
-  return createElement(
-    "button",
-    {
-      type: "button",
-      "data-minke-session-log-action": "",
-      "aria-label": label,
-      title: label,
-      "aria-busy": busy,
-      disabled: busy,
-      onClick: handleClick,
-    },
-    createElement(LucideIcon, {
-      icon: FileDown,
-      size: 16,
-    }),
-  );
-}
+import type { NativeTabsRuntime } from "./native/runtime.ts";
 
 export interface TabsHeaderActionProps {
+  native?: NativeTabsRuntime;
+  /** Blank sessions have no DSH header corner to reopen a collapsed Sidebar. */
+  nativeOpener?: boolean;
   runtimes: Readonly<
     Record<TabsPanelPlacement, TabsRuntime>
   > & {
@@ -86,12 +39,6 @@ interface SessionListSelection {
   >;
 }
 
-const PANEL_PLACEMENT_PATHS = {
-  bottom:
-    "M5.5 3.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m1 12h8",
-  right:
-    "M5.5 3.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m10 11v-8",
-} as const;
 const ignorePresentationChanges = () => () => {};
 const dockedPresentation = () => "docked" as const;
 
@@ -112,33 +59,6 @@ function useRightDrawerOpen(
   return rightSnapshot.visible && rightPresentation === "drawer";
 }
 
-function PanelPlacementIcon(props: {
-  placement: TabsPanelPlacement;
-}): ReactNode {
-  return createElement(
-    "svg",
-    {
-      xmlns: "http://www.w3.org/2000/svg",
-      width: "1em",
-      height: "1em",
-      viewBox: "0 0 21 21",
-      "aria-hidden": "true",
-    },
-    createElement("path", {
-      d: "M0 0h21v21H0z",
-      fill: "none",
-    }),
-    createElement("path", {
-      d: PANEL_PLACEMENT_PATHS[props.placement],
-      fill: "none",
-      stroke: "currentColor",
-      strokeWidth: "1.5",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-    }),
-  );
-}
-
 interface NewSessionTabsHeaderActionProps
   extends TabsHeaderActionProps {
   useSessions: <T>(
@@ -148,10 +68,13 @@ interface NewSessionTabsHeaderActionProps
 
 /** Toggle the independent bottom and right Tabs docks. */
 export function TabsHeaderAction({
+  native,
+  nativeOpener = false,
   runtimes,
   presentation,
   t,
 }: TabsHeaderActionProps): ReactNode {
+  useSyncExternalStore(native?.subscribe ?? ignorePresentationChanges, native?.getSnapshot ?? (() => 0), () => 0);
   const bottomSnapshot = useSyncExternalStore(
     runtimes.bottom.subscribe,
     runtimes.bottom.getSnapshot,
@@ -170,7 +93,9 @@ export function TabsHeaderAction({
       role: "group",
       "aria-label": t("header.placement"),
     },
-    (["bottom", "right"] as const).map((placement) => {
+    (["bottom", "right"] as const).filter(placement =>
+      placement === "bottom" || !native?.active || (nativeOpener && !rightSnapshot.visible)
+    ).map((placement) => {
       const runtime = runtimes[placement];
       const active =
         placement === "bottom"
@@ -194,7 +119,7 @@ export function TabsHeaderAction({
           "data-minke-tabs-placement": placement,
           "aria-label": label,
           title: label,
-          "aria-controls": tabsPanelId(placement),
+          "aria-controls": placement === "right" && native?.active ? undefined : tabsPanelId(placement),
           "aria-expanded": active,
           "aria-pressed": active,
           onClick: () => {
@@ -208,7 +133,7 @@ export function TabsHeaderAction({
             runtime.toggle();
           },
         },
-        createElement(PanelPlacementIcon, { placement }),
+        createElement(PanelHeaderIcon, { placement }),
       );
     }),
   );
@@ -216,11 +141,13 @@ export function TabsHeaderAction({
 
 /** Keep the Tabs toggles available while blank Session Header chrome is absent. */
 export function NewSessionTabsHeaderAction({
+  native,
   runtimes,
   presentation,
   t,
   useSessions,
 }: NewSessionTabsHeaderActionProps): ReactNode {
+  useSyncExternalStore(native?.subscribe ?? ignorePresentationChanges, native?.getSnapshot ?? (() => 0), () => 0);
   const isNewSession = useSessions((state) => {
     if (state.current === undefined) return true;
     return state.byId[state.current]?.blank === true;
@@ -233,8 +160,15 @@ export function NewSessionTabsHeaderAction({
 
   return createElement(
     "div",
-    { "data-minke-new-session-tabs-action": "" },
+    {
+      "data-minke-new-session-tabs-action": "",
+      "data-native-sidebar": native?.active
+        ? runtimes.right.getSnapshot().visible ? "open" : "closed"
+        : undefined,
+    },
     createElement(TabsHeaderAction, {
+      native,
+      nativeOpener: true,
       runtimes,
       presentation,
       t,

@@ -1,5 +1,5 @@
 [data-shell-overlay] {
-  --minke-tabs-layout-actions-clearance: 70px;
+  --minke-tabs-layout-actions-clearance: 80px;
   --minke-tabs-primary-row-top: 6px;
 }
 
@@ -9,14 +9,28 @@
   height: 32px;
   flex: none;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
   pointer-events: auto;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
 header:has([data-minke-tabs-layout-actions]) {
-  padding-right: 8px;
+  padding-right: 12px;
+}
+
+/* DSH's corner offset assumes its original 28px right padding. Keep the
+   compact Minke controls inside the header and align both action groups. */
+header:has([data-minke-tabs-layout-actions])
+  > div > div:has(> [data-slot="conversation.session.header.utilities"]) {
+  gap: 8px;
+  margin-left: 12px;
+}
+
+header:has([data-minke-tabs-layout-actions])
+  [data-conversation-header-corner] {
+  margin-left: 8px;
+  margin-right: 0;
 }
 
 [data-minke-tabs-right-open]
@@ -40,19 +54,50 @@ header:has([data-minke-tabs-layout-actions]) {
   pointer-events: auto;
 }
 
-[data-minke-session-log-action],
+/* Blank-session global actions belong to the conversation column. Inheriting
+   DSH's live grid tracks also follows resizing without another geometry owner. */
+[data-shell-overlay]:has([data-minke-new-session-tabs-action][data-native-sidebar]) {
+  /* DSH's 28px control band starts 10px down; center our 32px row on it. */
+  --minke-tabs-primary-row-top: 8px;
+  display: grid;
+  grid-template-columns: inherit;
+  grid-template-rows: 100%;
+}
+
+[data-shell-overlay]:has([data-native-sidebar="open"]) {
+  --minke-tabs-layout-actions-clearance: 44px;
+}
+
+[data-minke-new-session-tabs-action][data-native-sidebar],
+[data-shell-overlay]:has([data-native-sidebar]) [data-minke-new-session-remote-hub-action] {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  align-self: start;
+}
+
+[data-shell-overlay]:has([data-native-sidebar]) [data-minke-new-session-remote-hub-action] {
+  right: var(--minke-tabs-layout-actions-clearance, 80px);
+}
+
+[data-rightbar-fullscreen] [data-minke-new-session-tabs-action][data-native-sidebar],
+[data-rightbar-fullscreen] [data-shell-overlay]:has([data-native-sidebar]) [data-minke-new-session-remote-hub-action] {
+  visibility: hidden;
+}
+
 [data-minke-tabs-header-action] {
   display: inline-grid !important;
-  width: 32px;
-  min-width: 32px !important;
-  height: 32px;
+  width: 28px;
+  min-width: 28px !important;
+  height: 28px;
   flex: none;
   place-items: center;
   gap: 0 !important;
   box-sizing: border-box;
   padding: 0 !important;
   border: none;
-  border-radius: 10px;
+  border-radius: 28px;
   appearance: none;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
@@ -61,45 +106,22 @@ header:has([data-minke-tabs-layout-actions]) {
   app-region: no-drag;
 }
 
-[data-minke-tabs-header-action] {
-  width: 28px;
-  min-width: 28px !important;
-  height: 28px;
-  border-radius: 8px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-[data-minke-session-log-action]:hover:not(:disabled),
-[data-minke-tabs-header-action]:hover:not(:disabled):not(
-    [aria-expanded="true"]
-  ) {
+[data-minke-tabs-header-action]:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
-}
-
-[data-minke-tabs-header-action]:hover:not(:disabled):not(
-    [aria-expanded="true"]
-  ) {
-  color: var(--dsw-alias-label-secondary);
 }
 
 [data-minke-tabs-header-action][aria-expanded="true"] {
   background: transparent;
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-secondary);
 }
 
-[data-minke-session-log-action]:focus-visible,
 [data-minke-tabs-header-action]:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 1px;
 }
 
-[data-minke-session-log-action]:disabled {
-  cursor: wait;
-}
-
-[data-minke-session-log-action] > svg,
 [data-minke-tabs-header-action] > svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   pointer-events: none;
 }

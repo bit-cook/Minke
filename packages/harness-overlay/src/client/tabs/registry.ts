@@ -36,6 +36,10 @@ export class TabRendererRegistry {
     return this.#renderers.get(kind);
   }
 
+  kinds(): readonly string[] {
+    return [...this.#renderers.keys()];
+  }
+
   creators(): readonly TabCreateOption[] {
     return [...this.#renderers.values()]
       .flatMap((renderer) => renderer.createOptions?.() ?? [])

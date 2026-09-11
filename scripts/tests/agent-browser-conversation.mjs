@@ -18,13 +18,16 @@ const temporaryRoot = await mkdtemp(
 const environment = {
   ...process.env,
   MINKE_AGENT_BROWSER_E2E_ROOT: temporaryRoot,
+  ...(process.argv.includes('--sidebar') ? { MINKE_SIDEBAR_UI_E2E: '1' } : {}),
 };
 delete environment.ELECTRON_RUN_AS_NODE;
 
 try {
   const code = await new Promise((resolveExit, reject) => {
     const successMarker =
-      "Agent Browser real conversation takeover smoke passed\n";
+      environment.MINKE_SIDEBAR_UI_E2E === '1'
+        ? "Native Sidebar UI regression passed\n"
+        : "Agent Browser real conversation takeover smoke passed\n";
     let outputTail = "";
     let passed = false;
     const child = spawn(

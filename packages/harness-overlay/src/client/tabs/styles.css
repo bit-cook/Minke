@@ -412,7 +412,7 @@ body:has(
   top: var(--minke-tabs-primary-row-top, 6px);
   right: var(
     --minke-tabs-layout-actions-clearance,
-    70px
+    80px
   );
 }
 
@@ -445,6 +445,25 @@ body:has(
   scrollbar-width: thin;
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+.minke-tabs-create-menu__group {
+  display: grid;
+  gap: 1px;
+}
+
+.minke-tabs-create-menu__group + .minke-tabs-create-menu__group {
+  margin-top: 5px;
+  padding-top: 6px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-tabs-create-menu__heading {
+  padding: 6px 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
 }
 
 .minke-tabs-create-menu__item {
@@ -861,7 +880,7 @@ body:has(
 .minke-tabs-empty__window-drag {
   position: absolute;
   inset: 0
-    var(--minke-tabs-layout-actions-clearance, 70px)
+    var(--minke-tabs-layout-actions-clearance, 80px)
     0 0;
 }
 
@@ -913,6 +932,88 @@ body:has(
   font-size: 14px;
   font-weight: 500;
   line-height: 20px;
+}
+
+.minke-tabs-create-menu__item[aria-checked="true"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-tabs-create-menu__item:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+  background: transparent;
+}
+
+.minke-tabs-native-guide__content {
+  display: grid;
+  width: 100%;
+  max-width: 360px;
+  gap: 24px;
+}
+
+.minke-tabs-native-guide__defaults,
+.minke-tabs-native-guide .minke-tabs-empty__options {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.minke-tabs-native-guide__section {
+  display: grid;
+  gap: 12px;
+}
+
+.minke-tabs-native-guide__heading {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.minke-tabs-native-guide .minke-tabs-empty__option {
+  min-height: 44px;
+  padding: 10px 12px;
+  gap: 12px;
+  border-radius: 10px;
+}
+
+.minke-tabs-native-guide .minke-tabs-empty__option:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.minke-tabs-native-guide .minke-tabs-empty__label {
+  min-width: 0;
+}
+
+.minke-tabs-native-guide__defaults .minke-tabs-empty__option {
+  min-height: 48px;
+  justify-content: center;
+  gap: 8px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 20px;
+  background: transparent;
+}
+
+.minke-tabs-native-guide__defaults .minke-tabs-empty__option:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.minke-tabs-native-guide__defaults .minke-tabs-empty__label {
+  font-weight: 400;
+}
+
+.minke-tabs-native-guide__shortcut {
+  flex: none;
+  margin-left: auto;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .minke-tabs-panel[data-placement="bottom"]
@@ -1072,3 +1173,60 @@ body:has(
     transition: none;
   }
 }
+
+/* Keep the native tab chips clear of both custom toolbars and document bodies. */
+[data-sidebar-right-panel] [data-dockkit-strip],
+[data-sidebar-right-float-host] [data-dockkit-float-grip] {
+  padding-bottom: 4px;
+}
+
+/* Native Sidebar seats measure placement; content owners never move in the DOM. */
+.minke-tabs-native-viewport {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.minke-tabs-native-viewport[data-visible="false"] { display: none; }
+.minke-tabs-native-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.minke-tabs-native-title > svg { flex: none; }
+.minke-tabs-native-title > span { overflow: hidden; text-overflow: ellipsis; }
+.minke-tabs-native-host {
+  --minke-tabs-control-height: 28px;
+  --minke-tabs-control-radius: 8px;
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  visibility: hidden;
+  pointer-events: none;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  -webkit-app-region: no-drag;
+}
+.minke-tabs-native-host > .minke-tabs-native-toolbar {
+  position: relative;
+  inset: auto;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 38px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  transform: none;
+}
+.minke-tabs-native-toolbar > * { transform: none; }
+.minke-tabs-native-host > .minke-tabs-progress { position: relative; inset: auto; flex: none; }
+.minke-tabs-native-host > .minke-tabs-content { flex: 1 1 auto; min-height: 0; }

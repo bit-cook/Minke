@@ -288,11 +288,12 @@ export function createWebTabRenderer(
         </ToolbarButton>
       </>
     ),
-    renderToolbarCenter: (tab) =>
+    renderToolbarCenter: (tab, visible = true) =>
       isWebTab(tab)
         ? (
           <WebAddressBar
             tab={tab}
+            visible={visible}
             controller={controller}
             t={t}
           />

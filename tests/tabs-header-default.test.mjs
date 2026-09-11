@@ -9,6 +9,7 @@ import {
 } from "../vendor/deepseek-harness/node_modules/jsdom/lib/api.js";
 import {
   TabsHeaderAction,
+  NewSessionTabsHeaderAction,
 } from "@minke/harness-overlay/client/tabs/HeaderActions.ts";
 import {
   createBottomTabsToggle,
@@ -152,4 +153,37 @@ test("the empty bottom Tabs action opens a Terminal directly", async () => {
   } finally {
     dom.window.close();
   }
+});
+
+test("blank Sessions expose the native opener only while collapsed", async () => {
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', { pretendToBeVisual: true });
+  try {
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const bottom = new TabsRuntime({ showPanel() {}, hidePanel() {} });
+      const right = new TabsRuntime({ showPanel() {}, hidePanel() {} });
+      const native = { active: true, subscribe: () => () => {}, getSnapshot: () => 0 };
+      const root = createRoot(dom.window.document.getElementById("root"));
+      const rightButton = () => dom.window.document.querySelector('[data-minke-tabs-placement="right"]');
+      try {
+        await act(async () => root.render(createElement(NewSessionTabsHeaderAction, {
+          native, runtimes: { bottom, right }, t: key => tabsEn[key],
+          useSessions: selector => selector({ current: "blank", byId: { blank: { blank: true } } }),
+        })));
+        assert.ok(rightButton());
+        assert.equal(rightButton().getAttribute("aria-controls"), null, "native controls cannot target the hidden fallback panel");
+        await act(async () => rightButton().click());
+        assert.equal(right.getSnapshot().visible, true);
+        assert.equal(rightButton(), null, "DSH owns the expanded Sidebar's collapse control");
+        assert.equal(dom.window.document.querySelector('[data-minke-new-session-tabs-action]').dataset.nativeSidebar, "open");
+        assert.ok(dom.window.document.querySelector('[data-minke-tabs-placement="bottom"]'));
+        await act(async () => right.hide());
+        assert.ok(rightButton(), "a blank Session must be able to reopen the native Sidebar");
+      } finally {
+        await act(async () => root.unmount());
+        bottom.dispose();
+        right.dispose();
+      }
+    });
+  } finally { dom.window.close(); }
 });

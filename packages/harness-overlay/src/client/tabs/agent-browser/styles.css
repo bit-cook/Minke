@@ -11,6 +11,9 @@
 
 .minke-tab:has(
   .minke-agent-browser__tab-signal[data-agent-active]
+),
+[data-dockkit-tab]:has(
+  .minke-agent-browser__tab-signal[data-agent-active]
 ) {
   isolation: isolate;
   border-color: color-mix(
@@ -32,6 +35,9 @@
 }
 
 .minke-tab:has(
+  .minke-agent-browser__tab-signal[data-agent-active]
+)::after,
+[data-dockkit-tab]:has(
   .minke-agent-browser__tab-signal[data-agent-active]
 )::after {
   position: absolute;
@@ -1072,6 +1078,9 @@
 @media (prefers-reduced-motion: reduce) {
   .minke-tab:has(
     .minke-agent-browser__tab-signal[data-agent-active]
+  )::after,
+[data-dockkit-tab]:has(
+    .minke-agent-browser__tab-signal[data-agent-active]
   )::after {
     animation: none;
     background-position: 50% 50%;
@@ -1091,4 +1100,17 @@
     transform: none;
     will-change: auto;
   }
+}
+
+[data-dockkit-tab]:has(.minke-agent-browser__tab-signal[data-agent-active]) > [data-dockkit-tab-title] {
+  position: relative;
+  z-index: 1;
+}
+[data-dockkit-tab]:has(.minke-agent-browser__tab-signal[data-agent-active]) > [data-dockkit-tab-close] {
+  z-index: 1;
+}
+.minke-tabs-native-title > .minke-agent-browser__tab-signal {
+  width: 13px;
+  height: 13px;
+  flex: none;
 }

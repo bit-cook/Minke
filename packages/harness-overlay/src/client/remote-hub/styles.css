@@ -4,17 +4,17 @@
   position: relative;
   display: inline-grid !important;
   box-sizing: border-box;
-  width: 32px;
-  min-width: 32px !important;
-  height: 32px;
+  width: 28px;
+  min-width: 28px !important;
+  height: 28px;
   flex: none;
   place-items: center;
   padding: 0 !important;
   border: none;
-  border-radius: 10px;
+  border-radius: 28px;
   appearance: none;
   background: transparent;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   pointer-events: auto;
   -webkit-app-region: no-drag;
@@ -24,6 +24,12 @@
 [data-minke-remote-hub-action]:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
+}
+
+[data-minke-remote-hub-action] > svg {
+  width: 15px;
+  height: 15px;
+  pointer-events: none;
 }
 
 [data-minke-remote-hub-action]:focus-visible,
@@ -41,38 +47,32 @@
 }
 
 [data-minke-remote-hub-indicator] {
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  box-sizing: border-box;
-  width: 7px;
-  height: 7px;
-  border: 1.5px solid var(--dsw-alias-bg-layer-1);
-  border-radius: 50%;
-  background: var(--dsw-alias-label-quaternary);
+  color: inherit;
 }
 
 [data-minke-remote-hub-action][data-state="active"]
   [data-minke-remote-hub-indicator] {
-  background: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-state-success-primary);
 }
 
 [data-minke-remote-hub-action][data-state="working"]
   [data-minke-remote-hub-indicator] {
-  background: var(--dsw-alias-state-warning-primary);
+  color: var(--dsw-alias-state-warning-primary);
 }
 
 [data-minke-remote-hub-action][data-state="attention"]
   [data-minke-remote-hub-indicator] {
-  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 [data-minke-new-session-remote-hub-action] {
   position: absolute;
+  /* Match the panel controls' primary row, including its 2px vertical inset. */
+  display: flex;
+  height: 32px;
+  align-items: center;
   top: var(--minke-tabs-primary-row-top, 6px);
-  right: calc(
-    var(--minke-tabs-layout-actions-clearance, 0px) + 8px
-  );
+  right: var(--minke-tabs-layout-actions-clearance, 8px);
   z-index: 6;
   pointer-events: none !important;
 }

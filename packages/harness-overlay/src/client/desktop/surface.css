@@ -1,7 +1,14 @@
 /* Native macOS window surface adjustments. */
 #root :has(> [data-dsh-desktop-titlebar-anchor]),
-[data-dsh-desktop-base-surface] {
+[data-dsh-desktop-base-surface]:not([data-sidebar-right-panel="fullscreen"]) {
   background-color: transparent !important;
+}
+
+/* Fullscreen overlays the other columns, so retain DSH's opaque base and keep
+   the first strip clear of the native window controls. Other panes stay flush. */
+[data-sidebar-right-panel="fullscreen"]
+  [data-dsh-desktop-window-controls-inset] {
+  padding-left: 64px;
 }
 
 [data-dsh-desktop-sidebar-fade] {
@@ -31,16 +38,26 @@
   app-region: no-drag;
 }
 
+[data-sidebar-right-panel] [data-dockkit-strip],
 [data-minke-tabs-window-drag] {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
+[data-sidebar-right-panel] [data-dockkit-strip][data-dsh-desktop-drag-enabled],
 [data-dsh-desktop-titlebar-anchor][data-dsh-desktop-drag-enabled],
 [data-dsh-desktop-top-drag-region][data-dsh-desktop-drag-enabled],
 [data-minke-tabs-window-drag][data-dsh-desktop-drag-enabled] {
   -webkit-app-region: drag;
   app-region: drag;
+}
+
+/* The native strip owns blank window chrome. Its chips retain DockKit's tab
+   dragging, and its controls retain clicks. Floating panels keep their own grip. */
+[data-sidebar-right-panel] [data-dockkit-strip]
+  :is([data-dockkit-strip-tabs], [data-dockkit-tab], [data-dockkit-strip-chrome], button) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 [data-dsh-desktop-top-drag-region]

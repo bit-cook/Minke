@@ -68,6 +68,7 @@ function loadDesktopSource() {
     export {
       bindTabs,
     } from "./desktop/main/tabs/index.ts";
+    export { macOSWindowOptions } from "./desktop/main/macos-window.ts";
   `;
   const bundled = buildSync({
     alias: {
@@ -506,39 +507,37 @@ async function waitForAssistantMarker(
 }
 
 async function rendererValue(window, source) {
-  return await window.webContents.executeJavaScript(
-    `Promise.resolve((${source})())`,
+  const result = await window.webContents.executeJavaScript(
+    `(async () => { try { return { value: await (${source})() }; }
+      catch (error) { return { error: String(error?.stack ?? error) }; } })()`,
     true,
   );
+  if (result.error) throw new Error(result.error);
+  return result.value;
 }
 
 async function readAgentBrowserLayout(window) {
   return await rendererValue(
     window,
     `() => {
+      const host = document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)');
+      if (!host) throw new Error('Agent Browser native content host is missing');
+      const title = document.querySelector('[data-minke-tab-title="' + host.dataset.minkeTabInstance + '"]');
+      const chip = title?.closest('[data-dockkit-tab]');
+      if (!chip) throw new Error('Agent Browser must appear in the DSH tab strip');
+      const chipSelector = '[data-dockkit-tab="' + chip.dataset.dockkitTab + '"]';
+      const hostSelector = '.minke-tabs-native-host:has(.minke-agent-browser__view)';
       const selectors = {
-        panel: ".minke-tabs-panel:has(.minke-agent-browser__view)",
-        chrome:
-          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
-          ".minke-tabs-chrome",
-        tabbar:
-          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
-          ".minke-tabs-tabbar",
-        toolbar:
-          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
-          ".minke-tabs-toolbar",
-        content:
-          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
-          ".minke-tabs-content",
-        view: ".minke-agent-browser__view",
-        guest: ".minke-agent-browser__guest",
-        activeTab:
-          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
-          ".minke-tab[data-active]",
-        activeTabClose:
-          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
-          ".minke-tab[data-active] .minke-tab__close",
-        layoutActions: "[data-minke-tabs-layout-actions]",
+        panel: '[data-sidebar-right-panel]',
+        chrome: hostSelector + ' .minke-tabs-native-toolbar',
+        tabbar: '[data-dockkit-strip]:has(' + chipSelector + ')',
+        toolbar: hostSelector + ' .minke-tabs-native-toolbar',
+        content: hostSelector + ' .minke-tabs-content',
+        view: '.minke-agent-browser__view',
+        guest: '.minke-agent-browser__guest',
+        activeTab: chipSelector,
+        activeTabClose: chipSelector + ' [data-dockkit-tab-close]',
+        layoutActions: '[data-dockkit-strip]:has(' + chipSelector + ') [data-dockkit-strip-chrome]',
       };
       const rect = (selector) => {
         const element = document.querySelector(selector);
@@ -821,6 +820,7 @@ async function run() {
       HarnessRuntime,
       SqliteAgentBrowserHistory,
       bindTabs,
+      macOSWindowOptions,
     } = loadDesktopSource();
     const browserHistory = new SqliteAgentBrowserHistory({
       path: join(
@@ -860,6 +860,7 @@ async function run() {
     trace(`Harness ready at ${harnessUrl}`);
 
     window = new BrowserWindow({
+      ...macOSWindowOptions(),
       width: 1_280,
       height: 800,
       show: false,
@@ -923,6 +924,29 @@ async function run() {
       .join('; ');
     assert.notEqual(harnessCookie, '');
 
+    // Exercise the real link interception path before any Session is selected.
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-minke-new-session-tabs-action]') !== null`), 'start-page tab controls');
+    await rendererValue(window, `() => {
+      const link = document.createElement('a');
+      link.href = ${JSON.stringify(fixture.url)};
+      link.textContent = 'Fallback browser fixture';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      return true;
+    }`);
+    await waitFor(() => rendererValue(window, `() => {
+      const panel = document.querySelector('.minke-tabs-panel[data-placement="right"][data-open]');
+      const host = document.querySelector('.minke-tabs-native-host[data-kind="web"]');
+      const guest = host?.querySelector('webview');
+      if (!panel || !host || host.inert || !guest?.getWebContentsId) return false;
+      const rect = host.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      if (hit?.closest('[data-minke-tab-instance]') !== host) return false;
+      return guest.getWebContentsId();
+    }`), 'start-page browser to paint above its fallback shell');
+    trace('start-page Web content painted above its fallback shell');
+
     const registeredWorkspace = await rpc(
       harnessUrl,
       'workspace/create',
@@ -938,6 +962,10 @@ async function run() {
       created.sessionId,
       'minke-agent-browser-conversation-e2e',
     );
+    if (process.env.MINKE_SIDEBAR_UI_E2E === '1') {
+      await require('./native-sidebar-ui.cjs').verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl: fixture.url, rendererValue, waitFor, workspace });
+      return;
+    }
     await rpc(harnessUrl, 'session/prompt', {
       requestId: 'minke-agent-browser-bootstrap',
       sessionId: created.sessionId,
@@ -1153,7 +1181,7 @@ async function run() {
         const signal = document.querySelector(
           ".minke-agent-browser__tab-signal[data-agent-active]"
         );
-        const tab = signal?.closest(".minke-tab");
+        const tab = signal?.closest("[data-dockkit-tab]");
         const view = document.querySelector(
           '.minke-agent-browser__view[data-owner="agent"]'
         );
@@ -1207,7 +1235,7 @@ async function run() {
         window,
         `() => {
           const panel = document.querySelector(
-            ".minke-tabs-panel:has(.minke-agent-browser__view)"
+            "[data-sidebar-right-panel]"
           );
           if (!(panel instanceof HTMLElement)) {
             throw new Error("Agent Browser panel is missing");
@@ -1310,6 +1338,95 @@ async function run() {
       'human-control',
     );
     trace('human input reached the embedded page');
+    const originalGuestId = guest.id;
+    await rendererValue(window, `() => {
+      window.__minkeTestGuest = document.querySelector('.minke-agent-browser__guest');
+      document.querySelector('[data-dockkit-add-tab]').click();
+      return true;
+    }`);
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-minke-tabs-create-menu] [role="group"][aria-label="DSH"] [role="menuitem"]') !== null`), 'DSH group in the add-tab menu');
+    assert.equal(await rendererValue(window, `() => document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)').inert`), false, 'opening the menu keeps the browser visible');
+    await rendererValue(window, `() => {
+      document.querySelector('[data-minke-tabs-create-menu] [role="group"][aria-label="DSH"] [role="menuitem"]').click();
+      return true;
+    }`);
+    await waitFor(() => rendererValue(window, `() =>
+      document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)')?.inert === true
+    `), 'native tab switch to hide the retained browser');
+    const retained = await rendererValue(window, `() => {
+      const node = document.querySelector('.minke-agent-browser__guest');
+      return { same: node === window.__minkeTestGuest, id: node.getWebContentsId() };
+    }`);
+    assert.equal(retained.same, true);
+    assert.equal(retained.id, originalGuestId);
+    assert.equal(await guest.executeJavaScript('document.querySelector("#human-note").value'), 'human-control');
+    await rendererValue(window, `() => {
+      const host = document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)');
+      document.querySelector('[data-minke-tab-title="' + host.dataset.minkeTabInstance + '"]').closest('[data-dockkit-tab]').click();
+      return true;
+    }`);
+    await waitFor(() => rendererValue(window, `() =>
+      document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)')?.inert === false
+    `), 'native tab to restore the same browser instance');
+    assert.equal(guest.isDestroyed(), false);
+    trace('native tab switching retained the same DOM node, WebContents and human input');
+
+    await rendererValue(window, `() => { document.querySelector('[data-sidebar-right-mode="fullscreen"]').click(); return true; }`);
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="fullscreen"]') !== null`), 'native fullscreen');
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-split-button]:not([disabled])') !== null`), 'room for a native split');
+    await rendererValue(window, `() => { document.querySelector('[data-dockkit-split-button]:not([disabled])').click(); return true; }`);
+    await waitFor(() => rendererValue(window, `() => document.querySelectorAll('[data-dockkit-pane]').length === 2`), 'two native split panes');
+    if (process.platform === 'darwin') {
+      await waitFor(() => rendererValue(window, `() => {
+        const strips = [...document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-strip]')];
+        return strips.length === 2 && getComputedStyle(strips[0]).paddingLeft === '64px' && getComputedStyle(strips[1]).paddingLeft === '10px';
+      }`), 'only the first fullscreen pane reserves native window controls');
+    }
+    await rendererValue(window, `() => { document.querySelector('[data-sidebar-right-mode="push"]').click(); return true; }`);
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="push"]') !== null`), 'native docked presentation');
+    await waitFor(() => rendererValue(window, `() => !document.querySelector('[data-sidebar-right-panel]').getAnimations().some(animation => animation.playState === 'running')`), 'native presentation transition to settle');
+    assert.equal(await rendererValue(window, `() => [...document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-strip]')].every(strip => getComputedStyle(strip).paddingLeft === '10px')`), true, 'docked panes recover their usual tab inset');
+    const dragStart = await rendererValue(window, `() => {
+      const host = document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)');
+      const chip = document.querySelector('[data-minke-tab-title="' + host.dataset.minkeTabInstance + '"]').closest('[data-dockkit-tab]');
+      const rect = chip.getBoundingClientRect();
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+    }`);
+    window.webContents.sendInputEvent({ type: 'mouseMove', ...dragStart });
+    window.webContents.sendInputEvent({ type: 'mouseDown', ...dragStart, button: 'left', clickCount: 1 });
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: dragStart.x - 20, y: dragStart.y + 30, button: 'left' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: 360, y: 240, button: 'left' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    window.webContents.sendInputEvent({ type: 'mouseUp', x: 360, y: 240, button: 'left', clickCount: 1 });
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-float]') !== null`), 'native drag to floating panel');
+    assert.equal(await rendererValue(window, `() => document.querySelector('.minke-agent-browser__guest') === window.__minkeTestGuest`), true);
+    assert.equal(await guest.executeJavaScript('document.querySelector("#human-note").value'), 'human-control');
+    await rendererValue(window, `() => { document.querySelector('[data-dockkit-float-dock]').click(); return true; }`);
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-float]') === null`), 'floating browser to dock');
+    assert.equal(await rendererValue(window, `() => document.querySelector('.minke-agent-browser__guest').getWebContentsId()`), originalGuestId);
+    trace('native fullscreen, split, drag-to-float and dock retained the same browser instance');
+
+    await rendererValue(window, `() => {
+      const settings = [...document.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Settings' || button.getAttribute('aria-label') === 'Settings');
+      if (!settings) throw new Error('Settings entry is missing');
+      settings.click();
+      return true;
+    }`);
+    await waitFor(() => rendererValue(window, `() => {
+      const panel = document.querySelector('[role="dialog"][aria-modal="true"]');
+      const host = document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)');
+      if (!panel || !host || host.inert) return false;
+      const rect = host.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return hit?.closest('[data-minke-tab-instance]') !== host;
+    }`), 'Settings dialog to cover the retained browser');
+    assert.equal(await rendererValue(window, `() => document.querySelector('.minke-agent-browser__guest') === window.__minkeTestGuest`), true);
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[role="dialog"][aria-modal="true"]') === null`), 'Settings dialog to close');
+    assert.equal(await rendererValue(window, `() => document.querySelector('.minke-agent-browser__guest').getWebContentsId()`), originalGuestId);
+    trace('Settings dialog layered above the browser without replacing its instance');
 
     trace('submitting the next browser turn without an explicit return-control click');
     await promptThroughComposer(window, CLOSE_PROMPT);
@@ -1337,6 +1454,9 @@ async function run() {
     );
 
   } catch (error) {
+    if (process.env.MINKE_SIDEBAR_UI_E2E === '1' && window && !window.isDestroyed()) {
+      if (process.env.MINKE_SIDEBAR_SCREENSHOT) await writeFile(`${process.env.MINKE_SIDEBAR_SCREENSHOT}.failed.png`, (await window.webContents.capturePage()).toPNG());
+    }
     process.exitCode = 1;
     process.stderr.write(
       `[agent-browser-e2e] failed: ${String(error?.stack ?? error)}\n`,
@@ -1369,7 +1489,9 @@ async function run() {
 run()
   .then(() => {
     process.stdout.write(
-      'Agent Browser real conversation takeover smoke passed\n',
+      process.env.MINKE_SIDEBAR_UI_E2E === '1'
+        ? 'Native Sidebar UI regression passed\n'
+        : 'Agent Browser real conversation takeover smoke passed\n',
     );
   })
   .catch((error) => {

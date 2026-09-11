@@ -6,7 +6,6 @@ import {
   desktopAgentBrowserPort,
   desktopAppUpdateSettingsStore,
   desktopPluginInstallerPort,
-  desktopSessionLogsPort,
   desktopTerminalSettingsStore,
   desktopWebSearchSettingsStore,
 } from "../desktop/index.ts";
@@ -76,7 +75,6 @@ import {
   installSessionHeaderActionStyles,
   installTabsStyles,
   NewSessionTabsHeaderAction,
-  SessionLogHeaderAction,
   TabRendererRegistry,
   tabsEn,
   TabsHeaderAction,
@@ -88,6 +86,7 @@ import {
 import {
   ResponsiveRightTabsHost,
 } from "./responsive-right-host.ts";
+import { installNativeTabs } from "./native/install.tsx";
 import {
   createBottomTabsToggle,
 } from "./bottom-toggle.ts";
@@ -162,7 +161,6 @@ export function installTabs(
     desktopAppUpdateSettingsStore();
   const webSearchSettingsStore =
     desktopWebSearchSettingsStore();
-  const sessionLogsPort = desktopSessionLogsPort();
   const terminalSettings = new TerminalSettingsRuntime(
     terminalSettingsStore,
   );
@@ -283,7 +281,7 @@ export function installTabs(
       "minke-overlay: Personal preferences Minke Settings page",
     );
   }
-  if (tabsPort.available || sessionLogsPort.available) {
+  if (tabsPort.available) {
     ctx.effect(
       () =>
         ctx.locale.register(TABS_NAMESPACE, {
@@ -297,26 +295,7 @@ export function installTabs(
       "minke-overlay: session header action styles",
     );
   }
-  if (sessionLogsPort.available) {
-    ctx.slots.inject(
-      "conversation.session.header.utilities",
-      () =>
-        ctx.slots.register(
-          {
-            name: "conversation.session.header.utilities",
-            id: "session-log-download",
-            order: 0,
-            priority: -100,
-            locale: TABS_NAMESPACE,
-            inject: () => ({
-              exportSession: (sessionId: string) =>
-                sessionLogsPort.export(sessionId),
-            }),
-          },
-          SessionLogHeaderAction as ComponentType<never>,
-        ),
-    );
-  }
+  // DSH owns the Session log menu; Electron still handles its ZIP save dialog.
   if (!tabsPort.available) return undefined;
 
   const tabsLayoutState = new TabsLayoutStateRuntime(tabsPort);
@@ -413,7 +392,8 @@ export function installTabs(
 
   const openRightHost = ctx.layout.openRightbar.bind(ctx.layout);
   const closeRightHost = ctx.layout.closeRightbar.bind(ctx.layout);
-  // Reserve the right Tabs track through the pinned runtime's public layout transitions.
+  // This host is used on the start page and global panels. Session content
+  // joins the native Sidebar; its seat owns the frame track while mounted.
   const rightHost = new ResponsiveRightTabsHost({
     openRightbar: openRightHost,
     closeRightbar: closeRightHost,
@@ -677,6 +657,12 @@ export function installTabs(
       }),
     }),
   });
+  const nativeTabs = installNativeTabs(ctx, rightTabs, rightWorkspace.renderers, createShortcuts);
+  ctx.effect(() => {
+    const sync = (): void => { rightHost.setNativeActive(nativeTabs.active); };
+    sync();
+    return nativeTabs.subscribe(sync);
+  }, "minke-overlay: right Sidebar frame ownership");
   const rightWebTabs = rightWorkspace.webTabs;
   if (rightWebTabs !== undefined) {
     ctx.effect(
@@ -694,6 +680,7 @@ export function installTabs(
         locale: TABS_NAMESPACE,
         inject: () => ({
           runtimes,
+          native: nativeTabs,
           presentation: rightHost,
         }),
       },
@@ -709,6 +696,7 @@ export function installTabs(
         locale: TABS_NAMESPACE,
         inject: () => ({
           placement: "right" as const,
+          native: nativeTabs,
           runtime: rightTabs,
           renderers: rightWorkspace.renderers,
           createShortcuts,
@@ -748,6 +736,7 @@ export function installTabs(
           locale: TABS_NAMESPACE,
           inject: () => ({
             runtimes,
+            native: nativeTabs,
             presentation: rightHost,
           }),
         },

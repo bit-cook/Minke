@@ -25,6 +25,16 @@ export interface TabsHost {
   hidePanel(): void;
 }
 
+/** Layout commands for a shell that owns the tab strip. False uses the local shell. */
+export interface TabsLayoutDelegate {
+  readonly active: boolean;
+  open(tab: ManagedTab, activate: boolean): boolean;
+  activate(id: string): boolean;
+  place(id: string, targetId: string, edge: "before" | "after"): boolean;
+  close(id: string): boolean;
+  setVisible(visible: boolean): boolean;
+}
+
 export interface TabCreateContext {
   readonly cwd?: string;
 }
@@ -50,6 +60,7 @@ export interface TabRenderer {
   ): ReactNode;
   renderToolbarCenter?(
     tab: ManagedTab,
+    visible?: boolean,
   ): ReactNode;
   subtitle?(tab: ManagedTab): string | undefined;
   loading?(tab: ManagedTab): boolean;

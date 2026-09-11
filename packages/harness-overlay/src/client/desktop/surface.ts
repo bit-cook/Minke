@@ -13,6 +13,7 @@ const DESKTOP_MARKERS = [
   "data-dsh-desktop-composer-add",
   "data-dsh-desktop-composer-primary",
   "data-dsh-desktop-base-surface",
+  "data-dsh-desktop-window-controls-inset",
   "data-dsh-desktop-sidebar-fade",
   "data-dsh-desktop-resize-handle",
 ] as const;
@@ -37,6 +38,7 @@ const DESKTOP_DRAG_TARGET_SELECTOR = [
   "[data-dsh-desktop-top-drag-region]",
   "[data-dsh-desktop-titlebar-anchor]",
   "[data-minke-tabs-window-drag]",
+  "[data-sidebar-right-panel] [data-dockkit-strip]",
 ].join(",");
 const INTERACTION_LAYER_SELECTOR = [
   "dialog[open]",
@@ -84,6 +86,15 @@ function markShell(root: Document, view: DesktopSurfaceView): void {
   const rightbarSurface = rightbarSlot?.querySelector("[data-sidebar-right-panel]");
   if (rightbarSurface instanceof view.HTMLElement) {
     rightbarSurface.setAttribute("data-dsh-desktop-base-surface", "");
+    // Only the leftmost pane meets the native window controls in fullscreen.
+    // Reconcile when splitting or moving panes so the inset follows that seat.
+    const firstStrip = rightbarSurface.querySelector("[data-dockkit-strip]");
+    for (const strip of rightbarSurface.querySelectorAll(
+      "[data-dsh-desktop-window-controls-inset]",
+    )) {
+      if (strip !== firstStrip) strip.removeAttribute("data-dsh-desktop-window-controls-inset");
+    }
+    firstStrip?.setAttribute("data-dsh-desktop-window-controls-inset", "");
   }
 
   for (const candidate of frame.children) {
@@ -183,7 +194,11 @@ function hasPortaledInteractionLayer(
   for (const candidate of body.children) {
     if (
       candidate === appRoot ||
-      candidate.matches("script, style, link")
+      candidate.matches("script, style, link") ||
+      // Resident tab bodies are portaled to keep Web/Terminal state alive.
+      // They are layout surfaces; declared menus/dialogs and hit testing still
+      // suspend any drag region that an interactive overlay actually covers.
+      candidate.hasAttribute("data-minke-tab-instance")
     ) {
       continue;
     }

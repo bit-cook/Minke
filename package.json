@@ -33,6 +33,8 @@
     "test:desktop:web-tab-links-runtime": "pnpm run build:preload && electron tests/web-tab-links-runtime.cjs",
     "test:desktop:agent-browser-conversation": "pnpm run build:preload && pnpm run harness:stage:ensure && pnpm run test:desktop:agent-browser-conversation:prepared",
     "test:desktop:agent-browser-conversation:prepared": "node scripts/tests/agent-browser-conversation.mjs",
+    "test:desktop:sidebar": "pnpm run build:preload && pnpm run harness:stage:ensure && pnpm run test:desktop:sidebar:prepared",
+    "test:desktop:sidebar:prepared": "node scripts/tests/agent-browser-conversation.mjs --sidebar",
     "test:desktop:runtime": "pnpm run build:preload && electron tests/macos-window-runtime.cjs",
     "test:sys": "node --test tests/sys-native-module.test.mjs",
     "harness:verify": "node scripts/harness/verify.mjs",

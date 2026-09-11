@@ -26,9 +26,8 @@ export interface ResponsiveRightTabsHostOptions {
 }
 
 /**
- * Owns the responsive seam between Minke's right Tabs panel and DSH's
- * desktop right Sidebar grid track. A mobile drawer keeps the upstream right Sidebar
- * subtree mounted while forcing its layout track closed.
+ * Owns the start-page/global-panel fallback. The native session Sidebar
+ * owns its own frame geometry; this host yields while that seat is mounted.
  */
 export class ResponsiveRightTabsHost
   implements TabsHost, RightTabsPresentationPort {
@@ -38,6 +37,7 @@ export class ResponsiveRightTabsHost
   readonly #listeners = new Set<() => void>();
   #visible = false;
   #disposed = false;
+  #nativeActive = false;
 
   constructor(
     layout: RightbarLayoutHost,
@@ -55,9 +55,17 @@ export class ResponsiveRightTabsHost
   }
 
   readonly getSnapshot = (): RightTabsPresentation =>
-    this.#drawerEnabled && this.#media.matches
+    !this.#nativeActive && this.#drawerEnabled && this.#media.matches
       ? "drawer"
       : "docked";
+
+  /** The native seat owns frame geometry while a session Sidebar is mounted. */
+  setNativeActive(active: boolean): void {
+    if (this.#nativeActive === active) return;
+    this.#nativeActive = active;
+    if (active) this.#visible = false;
+    for (const listener of this.#listeners) listener();
+  }
 
   readonly subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
@@ -67,12 +75,14 @@ export class ResponsiveRightTabsHost
   };
 
   showPanel(): void {
+    if (this.#nativeActive) return;
     if (this.#disposed) return;
     this.#visible = true;
     this.#applyLayout();
   }
 
   hidePanel(): void {
+    if (this.#nativeActive) return;
     if (this.#disposed) return;
     this.#visible = false;
     this.#layout.closeRightbar();
@@ -85,10 +95,10 @@ export class ResponsiveRightTabsHost
       "change",
       this.#handlePresentationChange,
     );
-    if (this.#visible) {
+    if (this.#visible && !this.#nativeActive) {
       this.#layout.closeRightbar();
-      this.#visible = false;
     }
+    this.#visible = false;
     this.#listeners.clear();
   }
 
@@ -99,10 +109,12 @@ export class ResponsiveRightTabsHost
   };
 
   #applyLayout(): void {
+    if (this.#nativeActive) return;
     if (this.getSnapshot() === "drawer") {
       this.#layout.closeRightbar();
     } else {
       this.#layout.openRightbar(true, false);
     }
   }
+
 }

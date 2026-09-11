@@ -38,6 +38,7 @@ import type {
 
 export interface WebAddressBarProps {
   tab: ManagedTab<WebTabPayload>;
+  visible?: boolean;
   controller: WebTabsController;
   t: WebTabsTranslate;
 }
@@ -63,6 +64,7 @@ const historyDateTime = new Intl.DateTimeFormat(undefined, {
 /** Editable URL surface for the active Web tab toolbar. */
 export function WebAddressBar({
   tab,
+  visible = true,
   controller,
   t,
 }: WebAddressBarProps): ReactNode {
@@ -88,10 +90,15 @@ export function WebAddressBar({
     setInvalid(false);
     setEdited(false);
     setActiveIndex(-1);
-    if (tab.payload.url === undefined) {
+  }, [tab.id, tab.payload.url]);
+
+  useEffect(() => {
+    // Native tab content mounts before its viewport becomes visible. Focus only
+    // once the host can receive it, including an empty tab opened in background.
+    if (visible && tab.payload.url === undefined) {
       inputRef.current?.focus({ preventScroll: true });
     }
-  }, [tab.id, tab.payload.url]);
+  }, [visible, tab.id, tab.payload.url]);
 
   useEffect(() => {
     if (!focused) return;

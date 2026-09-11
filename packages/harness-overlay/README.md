@@ -66,3 +66,54 @@ The Plugins workspace combines desktop-owned Profile installation metadata with 
 The unified Minke section contains labeled tabs for Preferences, Browser, Shortcuts, and Storage. Model-related configuration remains under the existing DSH Models entry, so users do not need to switch between two settings directories for one task. Remote access configuration lives only in Connections under Device access, alongside its live status and recovery actions. It is backed by the separate `@lencx/minke-remote-access` package, persists a default-off Tailscale opt-in, shows the active private HTTPS URL, and keeps command execution, retries, trusted-host updates, and process lifecycle in the desktop host rather than the browser bundle. Changing the enable switch applies to the running Harness without restarting Minke.
 
 The separate document-start extension remains CSS-only. It exists solely because first-paint transparency and Electron drag regions must be present before Harness initializes; it does not traverse or modify the Harness DOM.
+
+## Right Sidebar tabs
+
+While a conversation is selected, DSH owns the right tab strip, selection,
+splits, floats, fullscreen, and native document previews. Minke registers its
+Files editor, Terminal, Web, AgentBrowser, Plugins, and Browser History through
+`sidebarRightTabs` and the body/title slots. The native Start page directly offers
+Minke's creation cards and shortcut hints below other plugins' guide entries.
+Creating a Minke tab replaces Start in the same pane and strip slot; keyboard
+creation shortcuts continue to use the same controllers. The earlier
+`minke.launcher` address remains supported by the same chooser.
+The native add-tab button opens the shared dropdown with DSH and Minke groups.
+Choosing an entry creates it in that button's pane; dismissing the menu preserves
+the visible content and does not create a Start tab.
+
+Blank-session global controls follow DSH's conversation grid column. While the
+native Sidebar is open, DSH owns its split, fullscreen, and collapse buttons;
+Minke retains Remote and bottom-panel actions in the conversation area and supplies
+the opener when a blank session has no native conversation header.
+
+Session export uses DSH's native header menu (More actions → Download session log).
+Electron handles the ZIP download through its existing save dialog. Minke's Remote
+and panel controls follow DSH's 28px circular buttons and 15px icons. Their icons
+share DSH's unrotated outer contour and border weight; Remote status colors its
+wireless symbol inside the frame. On macOS,
+the native Sidebar's empty tab-strip area also supports window dragging while
+tabs, buttons, and open menus remain interactive.
+
+`tabs/native` is the only adapter to the pinned `sidebar-tab-lifecycle.patch`.
+It projects DSH layout state into `TabsRuntime`, which retains content payloads
+and the existing controller interface. Global Minke instances have stable content
+identities and appear in each visited session's layout; native documents remain
+session-owned. Closing a Minke instance in any session closes its other seats.
+Native close, replacement, and undo check the renderer's close guard before
+committing. Undo cannot recreate a disposed PTY or browser instance.
+
+Each custom view has one stable DOM owner outside the transient native seats.
+Seats provide viewport geometry; only visible hosts follow it, with clipping for
+overlapping native floats. Changing tabs, panes, presentation, or sessions does
+not reparent the WebView. Native titles, tab context menus, and drag handling remain in DSH.
+The start page and global panels use Minke's fallback strip with those same
+content owners. The bottom panel retains its independent Minke implementation.
+There is no DOM observer switching between competing right sidebars.
+
+The applied-artifact tests in `tests/native-sidebar-tabs.test.mjs` exercise the
+actual DSH store and controller, including a negative control for close guards.
+The Electron conversation regression verifies native placement and WebContents
+identity with a local model fixture and temporary user data.
+`pnpm test:desktop:sidebar` exercises blank-session controls at different widths,
+direct tab creation, Web navigation and retained input, a live Terminal command,
+and the file editor's unsaved-close guard in the production renderer.

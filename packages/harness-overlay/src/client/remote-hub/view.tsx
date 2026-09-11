@@ -1,10 +1,10 @@
 import {
-  Cast,
   RadioTower,
   ShieldCheck,
   X,
 } from "@lucide/icons";
 import QRCode from "qrcode";
+import { RemoteHeaderIcon } from "../core/HeaderIcons.tsx";
 import {
   useEffect,
   useId,
@@ -323,8 +323,7 @@ export function RemoteHubAction({
       title={t("trigger")}
       onClick={() => runtime.open(triggerRef.current ?? undefined)}
     >
-      <LucideIcon icon={Cast} size={16} />
-      <span aria-hidden="true" data-minke-remote-hub-indicator />
+      <RemoteHeaderIcon />
     </button>
   );
 }

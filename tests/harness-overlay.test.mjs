@@ -563,7 +563,7 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.match(bundle, /minke-overlay: session header action styles/u);
   assert.match(bundle, /minke-tabs-toggle/u);
   assert.match(bundle, /minkeDesktop\?\.sessionLogs/u);
-  assert.match(bundle, /data-minke-session-log-action/u);
+  assert.doesNotMatch(bundle, /data-minke-session-log-action/u);
   assert.match(bundle, /conversation\.session\.header\.utilities/u);
   assert.doesNotMatch(
     bundle,
@@ -842,16 +842,16 @@ test("Data Home primary action keeps readable colors on hover", () => {
   );
 });
 
-test("desktop Session export shadows the upstream Web action and modal", () => {
-  assert.match(
+test("desktop Session export retains the upstream DSH action and modal", () => {
+  assert.doesNotMatch(
     tabsInstallSource,
-    /name:\s*"conversation\.session\.header\.utilities"[\s\S]*id:\s*"session-log-download"[\s\S]*priority:\s*-100/u,
+    /id:\s*"session-log-download"/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     tabsInstallSource,
     /SessionLogHeaderAction as ComponentType<never>/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     tabsInstallSource,
     /sessionLogsPort\.export\(sessionId\)/u,
   );

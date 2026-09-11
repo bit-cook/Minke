@@ -2,6 +2,7 @@ import type {
   ManagedTab,
   TabInput,
   TabsHost,
+  TabsLayoutDelegate,
   TabsSnapshot,
 } from "./types.ts";
 
@@ -33,6 +34,7 @@ export class TabsRuntime {
   #snapshot = frozenSnapshot([], undefined, false);
   #nextId = 0;
   #disposed = false;
+  #layout: TabsLayoutDelegate | undefined;
 
   constructor(
     host: TabsHost,
@@ -52,6 +54,24 @@ export class TabsRuntime {
     };
   };
 
+  /** Content remains here; a connected shell owns placement and selection. */
+  connectLayout(layout: TabsLayoutDelegate): () => void {
+    this.#layout = layout;
+    return () => {
+      if (this.#layout === layout) this.#layout = undefined;
+    };
+  }
+
+  /** Read projection from the connected shell, never a second layout writer. */
+  projectLayout(order: readonly string[], activeId: string | undefined, visible: boolean): void {
+    const ranks = new Map(order.map((id, index) => [id, index]));
+    const tabs = [...this.#snapshot.tabs].sort((left, right) =>
+      (ranks.get(left.id) ?? Infinity) - (ranks.get(right.id) ?? Infinity));
+    if (activeId === this.#snapshot.activeId && visible === this.#snapshot.visible &&
+      tabs.every((tab, index) => tab.id === this.#snapshot.tabs[index]?.id)) return;
+    this.#commit(tabs, activeId, visible);
+  }
+
   open<Payload>(
     input: TabInput<Payload>,
     options: { activate?: boolean } = {},
@@ -68,6 +88,7 @@ export class TabsRuntime {
       (tab) => tab.kind === input.kind && tab.key === input.key,
     );
     if (existing !== undefined) {
+      if (this.#layout?.open(existing, options.activate !== false)) return existing.id;
       this.#commit(
         this.#snapshot.tabs,
         options.activate === false && this.#snapshot.activeId !== undefined
@@ -89,17 +110,21 @@ export class TabsRuntime {
     };
     const activate =
       options.activate !== false || this.#snapshot.activeId === undefined;
+    const delegated = this.#layout?.active === true;
     this.#commit(
       [...this.#snapshot.tabs, tab],
-      activate ? id : this.#snapshot.activeId,
-      true,
+      delegated ? this.#snapshot.activeId : activate ? id : this.#snapshot.activeId,
+      delegated ? this.#snapshot.visible : true,
     );
+    if (delegated && this.#layout?.open(tab, options.activate !== false)) return id;
+    if (delegated) this.#commit(this.#snapshot.tabs, activate ? id : this.#snapshot.activeId, true);
     this.#host.showPanel();
     return id;
   }
 
   activate(id: string): void {
     if (!this.#snapshot.tabs.some((tab) => tab.id === id)) return;
+    if (this.#layout?.activate(id)) return;
     this.#commit(this.#snapshot.tabs, id, true);
     this.#host.showPanel();
   }
@@ -110,6 +135,7 @@ export class TabsRuntime {
     edge: "before" | "after",
   ): void {
     if (id === targetId) return;
+    if (this.#layout?.place(id, targetId, edge)) return;
     const moving = this.#snapshot.tabs.find((tab) => tab.id === id);
     if (moving === undefined) return;
     const remaining = this.#snapshot.tabs.filter(
@@ -174,6 +200,7 @@ export class TabsRuntime {
   close(id: string): void {
     const index = this.#snapshot.tabs.findIndex((tab) => tab.id === id);
     if (index < 0) return;
+    const delegated = this.#layout?.close(id) ?? false;
     const tabs = this.#snapshot.tabs.filter((tab) => tab.id !== id);
     const activeId =
       this.#snapshot.activeId === id
@@ -181,10 +208,11 @@ export class TabsRuntime {
         : this.#snapshot.activeId;
     const visible = tabs.length > 0 && this.#snapshot.visible;
     this.#commit(tabs, activeId, visible);
-    if (tabs.length === 0) this.#host.hidePanel();
+    if (tabs.length === 0 && !delegated) this.#host.hidePanel();
   }
 
   hide(): void {
+    if (this.#layout?.setVisible(false)) return;
     if (!this.#snapshot.visible) return;
     this.#commit(
       this.#snapshot.tabs,
@@ -196,6 +224,7 @@ export class TabsRuntime {
 
   show(): void {
     if (this.#disposed) return;
+    if (this.#layout?.setVisible(true)) return;
     if (!this.#snapshot.visible) {
       this.#commit(
         this.#snapshot.tabs,
@@ -216,6 +245,7 @@ export class TabsRuntime {
 
   syncPanel(): void {
     if (this.#snapshot.visible) {
+      if (this.#layout?.setVisible(true)) return;
       this.#host.showPanel();
     }
   }

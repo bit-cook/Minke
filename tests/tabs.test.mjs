@@ -49,7 +49,6 @@ import {
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
   NewSessionTabsHeaderAction,
-  SessionLogHeaderAction,
   TabsHeaderAction,
 } from "@minke/harness-overlay/client/tabs/HeaderActions.ts";
 import {
@@ -3771,6 +3770,37 @@ test("Web address bar opens recent visits and supports keyboard selection", asyn
   }
 });
 
+test("a blank Web toolbar waits for visibility before taking keyboard focus", async () => {
+  const dom = new JSDOM('<!doctype html><button id="outside">Outside</button><div id="root"></div>', { pretendToBeVisual: true });
+  try {
+    await withTabsBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const container = dom.window.document.getElementById("root");
+      const outside = dom.window.document.getElementById("outside");
+      const root = createRoot(container);
+      const props = {
+        tab: { id: "blank", key: "blank", kind: "web", title: "New tab", payload: {} },
+        controller: { readRecentHistory: async () => [] },
+        t: key => webTabsEn[key],
+      };
+      try {
+        outside.focus();
+        await act(async () => root.render(createElement(WebAddressBar, { ...props, visible: false })));
+        assert.equal(dom.window.document.activeElement, outside);
+        const input = container.querySelector("input");
+        await act(async () => root.render(createElement(WebAddressBar, { ...props, visible: true })));
+        assert.equal(dom.window.document.activeElement, input);
+        assert.equal(container.querySelector("input"), input, "visibility must not remount toolbar state");
+        await act(async () => {
+          outside.focus();
+          root.render(createElement(WebAddressBar, { ...props, visible: false }));
+        });
+        assert.equal(dom.window.document.activeElement, outside);
+      } finally { await act(async () => root.unmount()); }
+    });
+  } finally { dom.window.close(); }
+});
+
 test("Tabs is content-agnostic and preserves hidden tab state", () => {
   const hostEvents = [];
   const tabs = new TabsRuntime({
@@ -3934,6 +3964,29 @@ test("Electron right Tabs remain docked at a compact width", () => {
   assert.deepEqual(layoutEvents, ["open"]);
   host.hidePanel();
   assert.deepEqual(layoutEvents, ["open", "close"]);
+  host.dispose();
+});
+
+test("the fallback host yields frame ownership to the native Sidebar", () => {
+  const events = [];
+  const media = Object.assign(new EventTarget(), { matches: false });
+  const host = new ResponsiveRightTabsHost({
+    openRightbar: () => events.push("open"),
+    closeRightbar: () => events.push("close"),
+  }, { view: { matchMedia: () => media } });
+  host.showPanel();
+  assert.deepEqual(events, ["open"]);
+  host.setNativeActive(true);
+  host.showPanel();
+  host.hidePanel();
+  media.matches = true;
+  media.dispatchEvent(new Event("change"));
+  assert.deepEqual(events, ["open"], "native frame geometry must not be overwritten");
+  assert.equal(host.getSnapshot(), "docked");
+  host.setNativeActive(false);
+  host.showPanel();
+  assert.equal(host.getSnapshot(), "drawer");
+  assert.deepEqual(events, ["open", "close"]);
   host.dispose();
 });
 
@@ -4147,9 +4200,9 @@ test("mobile right Tabs use a right-edge drawer presentation", () => {
   );
 });
 
-test("Session export and window layout actions stay semantically separate", () => {
+test("window layout actions follow DSH header geometry", () => {
   const sharedActionRule = SESSION_HEADER_ACTION_STYLES.match(
-    /\[data-minke-session-log-action\],[\s\S]*?\{([\s\S]*?)\n\}/u,
+    /\[data-minke-tabs-header-action\]\s*\{([\s\S]*?)\n\}/u,
   )?.[1];
   const idleTabsActionRule = [
     ...SESSION_HEADER_ACTION_STYLES.matchAll(
@@ -4166,32 +4219,18 @@ test("Session export and window layout actions stay semantically separate", () =
   assert.ok(idleTabsActionRule);
   assert.match(
     idleTabsActionRule,
-    /color:\s*var\(--dsw-alias-label-tertiary\);/u,
+    /color:\s*var\(--dsw-alias-label-secondary\);/u,
   );
   assert.ok(expandedTabsActionRule);
   assert.match(
     expandedTabsActionRule,
-    /color:\s*var\(--dsw-alias-label-primary\);/u,
+    /color:\s*var\(--dsw-alias-label-secondary\);/u,
   );
   assert.match(expandedTabsActionRule, /background:\s*transparent;/u);
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-tabs-header-action\]:hover:not\(:disabled\):not\(\s*\[aria-expanded="true"\]\s*\)/u,
+    /\[data-minke-tabs-header-action\]:hover:not\(:disabled\)/u,
   );
-
-  const exportMarkup = renderToStaticMarkup(
-    createElement(SessionLogHeaderAction, {
-      sessionId: "session-1",
-      exportSession: async () => {},
-      t: (key) => tabsEn[key],
-    }),
-  );
-  assert.match(exportMarkup, /data-minke-session-log-action=""/u);
-  assert.match(exportMarkup, /aria-label="Export Session log"/u);
-  assert.match(exportMarkup, /title="Export Session log"/u);
-  assert.match(exportMarkup, /aria-busy="false"/u);
-  assert.match(exportMarkup, /<svg[^>]*aria-hidden="true"/u);
-  assert.doesNotMatch(exportMarkup, />Session log</u);
 
   const hostEvents = [];
   const rightTabs = new TabsRuntime({
@@ -4251,20 +4290,17 @@ test("Session export and window layout actions stay semantically separate", () =
   assert.match(markup, /aria-expanded="false"/u);
   assert.equal((markup.match(/<svg/gu) ?? []).length, 2);
   assert.equal(
-    (markup.match(/viewBox="0 0 21 21"/gu) ?? []).length,
+    (markup.match(/viewBox="0 0 16 16"/gu) ?? []).length,
     2,
   );
   assert.equal(
-    (markup.match(/stroke-width="1.5"/gu) ?? []).length,
+    (markup.match(/fill-rule="evenodd"/gu) ?? []).length,
     2,
   );
+  assert.doesNotMatch(markup, /transform="rotate\(/u);
   assert.match(
     markup,
-    /d="M5\.5 3\.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m1 12h8"/u,
-  );
-  assert.match(
-    markup,
-    /d="M5\.5 3\.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m10 11v-8"/u,
+    /transform="translate\(16 0\) scale\(-1 1\)"/u,
   );
   const blankMarkup = renderToStaticMarkup(
     createElement(NewSessionTabsHeaderAction, {
@@ -4317,11 +4353,10 @@ test("Session export and window layout actions stay semantically separate", () =
   rightTabs.toggle();
   assert.equal(rightTabs.getSnapshot().visible, true);
   assert.deepEqual(Object.keys(tabsEn), Object.keys(tabsZh));
-  assert.equal(tabsZh["header.sessionLog"], "导出 Session 日志");
 
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-session-log-action\] > svg,[\s\S]*?\[data-minke-tabs-header-action\] > svg/u,
+    /\[data-minke-tabs-header-action\] > svg/u,
   );
   assert.doesNotMatch(
     SESSION_HEADER_ACTION_STYLES,
@@ -4401,11 +4436,11 @@ test("Tabs placement controls keep independent panels open", () => {
 
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-shell-overlay\]\s*\{[\s\S]*?--minke-tabs-layout-actions-clearance:\s*70px;[\s\S]*?--minke-tabs-primary-row-top:\s*6px;/u,
+    /\[data-shell-overlay\]\s*\{[\s\S]*?--minke-tabs-layout-actions-clearance:\s*80px;[\s\S]*?--minke-tabs-primary-row-top:\s*6px;/u,
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?height:\s*32px;[\s\S]*?gap:\s*2px;[\s\S]*?-webkit-app-region:\s*no-drag;[\s\S]*?app-region:\s*no-drag;/u,
+    /\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?height:\s*32px;[\s\S]*?gap:\s*8px;[\s\S]*?-webkit-app-region:\s*no-drag;[\s\S]*?app-region:\s*no-drag;/u,
   );
   const sessionActionGroupRule =
     SESSION_HEADER_ACTION_STYLES.match(
@@ -4433,7 +4468,7 @@ test("Tabs placement controls keep independent panels open", () => {
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /header:has\(\[data-minke-tabs-layout-actions\]\)\s*\{[\s\S]*?padding-right:\s*8px;/u,
+    /header:has\(\[data-minke-tabs-layout-actions\]\)\s*\{[\s\S]*?padding-right:\s*12px;/u,
     "closed-panel controls share the same compact right edge in normal Header flow",
   );
   assert.doesNotMatch(
@@ -4446,7 +4481,7 @@ test("Tabs placement controls keep independent panels open", () => {
   );
   assert.match(
     TABS_STYLES,
-    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar\s*\{[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*var\(\s*--minke-tabs-layout-actions-clearance,\s*70px\s*\);/u,
+    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar\s*\{[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*var\(\s*--minke-tabs-layout-actions-clearance,\s*80px\s*\);/u,
   );
   assert.match(
     TABS_STYLES,
@@ -4461,8 +4496,9 @@ test("Tabs placement controls keep independent panels open", () => {
     /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-chrome\[data-single-row\]\s*\{[\s\S]*?height:\s*44px;[\s\S]*?min-height:\s*44px;/u,
   );
   assert.doesNotMatch(
-    SESSION_HEADER_ACTION_STYLES,
+    SESSION_HEADER_ACTION_STYLES.match(/\[data-shell-overlay\]\s*\{([^}]*)\}/u)?.[1] ?? "",
     /grid-template-columns:\s*inherit;/u,
+    "the fallback overlay must not inherit DSH's conversation grid",
   );
 
   const resizeSource = readFileSync(
@@ -4530,11 +4566,11 @@ test("right Tabs top actions use compact hit areas and spacing", () => {
     },
     {
       actionHeight: 28,
-      actionRadius: 8,
+      actionRadius: 28,
       actionWidth: 28,
-      groupGap: 2,
+      groupGap: 8,
       groupHeight: 32,
-      layoutClearance: 70,
+      layoutClearance: 80,
       rightInset: 8,
     },
   );
@@ -4547,8 +4583,8 @@ test("right Tabs top actions use compact hit areas and spacing", () => {
   const layoutGroupWidth = actionWidth * 2 + groupGap;
   assert.equal(
     layoutClearance - rightInset - layoutGroupWidth,
-    4,
-    "New Tab must keep a compact 4px gap from the layout group",
+    8,
+    "New Tab must keep the DSH 8px gap from the layout group",
   );
 });
 
@@ -4590,7 +4626,7 @@ test("blank-session Remote stays outside open right Tabs", () => {
       panelWidth: 360,
       remotePanelFallback: 360,
       remotePanelGap: 8,
-      remoteWidth: 32,
+      remoteWidth: 28,
     },
   );
 
@@ -5038,7 +5074,7 @@ test("right Tabs window dragging covers populated and empty panels without claim
   );
   assert.match(
     TABS_STYLES,
-    /\.minke-tabs-empty__window-drag\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0\s+var\(\s*--minke-tabs-layout-actions-clearance,\s*70px\s*\)\s+0\s+0;/u,
+    /\.minke-tabs-empty__window-drag\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0\s+var\(\s*--minke-tabs-layout-actions-clearance,\s*80px\s*\)\s+0\s+0;/u,
     "the empty-panel drag surface must stop before the fixed layout actions",
   );
   assert.match(

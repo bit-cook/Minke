@@ -85,10 +85,14 @@ confined to the staged Sidebar client bundle and can be retired when upstream
 provides equivalent instance, observation, and close-admission contracts.
 
 Harness owns the native right Sidebar, document previews, produced-file actions,
-and the whole-session turn rail with deep-history load-and-jump. Minke reserves
-its right panel track through `ILayout.openRightbar/closeRightbar`. Global panels
-use `sidebar.panellist` and `main`; the removed Details and conversation slots
-are no longer integration points.
+and the whole-session turn rail with deep-history load-and-jump. Minke custom
+tabs now join that Sidebar through its public registration and render slots,
+with the private adapter confined to `tabs/native`. Stable Minke content hosts
+preserve WebViews and editors across native pane changes. The start page/global
+panel fallback and the bottom panel retain their Minke shells. Native
+conversation file links retain their Sidebar routing. Global panels use
+`sidebar.panellist` and `main`; the removed
+Details and conversation slots are no longer Minke integration points.
 The former subagent route patch stays removed because Harness natively resolves
 the effective parent provider, model, and reasoning effort.
 

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -30,6 +31,8 @@ const MENU_ROW_HEIGHT = 36;
 const MENU_COARSE_ROW_HEIGHT = 44;
 const MENU_VERTICAL_PADDING = 10;
 const MENU_ROW_GAP = 1;
+const MENU_GROUP_HEADING_HEIGHT = 28;
+const MENU_GROUP_GAP = 12;
 const VIEWPORT_GUTTER = 8;
 const ANCHOR_GAP = 6;
 
@@ -42,6 +45,12 @@ interface TabsCreateMenuGeometry {
   readonly width: number;
 }
 
+export interface TabsCreateMenuOption extends TabCreateOption {
+  readonly group?: string;
+  readonly disabled?: boolean;
+  readonly checked?: boolean;
+}
+
 export interface TabsCreateMenuProps {
   readonly anchor: HTMLElement | null;
   readonly context: TabCreateContext;
@@ -51,7 +60,7 @@ export interface TabsCreateMenuProps {
   readonly onClose: () => void;
   readonly onCreated?: () => void;
   readonly open: boolean;
-  readonly options: readonly TabCreateOption[];
+  readonly options: readonly TabsCreateMenuOption[];
   readonly placement: TabsPanelPlacement;
   readonly shortcutBinding?: (
     optionId: string,
@@ -73,7 +82,7 @@ function focusableItems(
 ): readonly HTMLButtonElement[] {
   return [
     ...menu.querySelectorAll<HTMLButtonElement>(
-      '[role="menuitem"]:not(:disabled)',
+      ':is([role="menuitem"], [role="menuitemradio"]):not(:disabled)',
     ),
   ];
 }
@@ -142,6 +151,13 @@ export function TabsCreateMenu({
   const focusedAnchorRef = useRef<HTMLElement | null>(null);
   const [geometry, setGeometry] =
     useState<TabsCreateMenuGeometry>();
+  const groups: { label: string | undefined; options: TabsCreateMenuOption[] }[] = [];
+  for (const option of options) {
+    const last = groups.at(-1);
+    if (last && last.label === option.group) last.options.push(option);
+    else groups.push({ label: option.group, options: [option] });
+  }
+  const headingCount = groups.filter(group => group.label !== undefined).length;
   const menuWidth = shortcutBinding === undefined
     ? MENU_WIDTH
     : shortcutPlatform === "apple"
@@ -195,7 +211,9 @@ export function TabsCreateMenu({
       const desiredHeight =
         MENU_VERTICAL_PADDING +
         options.length * rowHeight +
-        Math.max(0, options.length - 1) * MENU_ROW_GAP;
+        Math.max(0, options.length - 1) * MENU_ROW_GAP +
+        headingCount * MENU_GROUP_HEADING_HEIGHT +
+        Math.max(0, headingCount - 1) * MENU_GROUP_GAP;
       const side =
         belowAvailable >= desiredHeight ||
         belowAvailable >= aboveAvailable
@@ -228,7 +246,7 @@ export function TabsCreateMenu({
       view.removeEventListener("resize", update);
       document.removeEventListener("scroll", update, true);
     };
-  }, [anchor, menuWidth, open, options.length]);
+  }, [anchor, headingCount, menuWidth, open, options.length]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -340,6 +358,57 @@ export function TabsCreateMenu({
     return null;
   }
 
+  const renderOption = (option: TabsCreateMenuOption): ReactNode => {
+    const resolvedBinding = shortcutBinding?.(option.id);
+    const binding =
+      typeof resolvedBinding === "string" &&
+        resolvedBinding.length > 0
+        ? resolvedBinding
+        : undefined;
+    return (
+      <button
+        key={option.id}
+        type="button"
+        className="minke-tabs-create-menu__item"
+        data-option={option.id}
+        role={option.checked === undefined ? "menuitem" : "menuitemradio"}
+        aria-checked={option.checked}
+        disabled={option.disabled}
+        aria-keyshortcuts={
+          binding === undefined
+            ? undefined
+            : formatShortcutBindingAria(
+                binding,
+                shortcutPlatform,
+              )
+        }
+        onClick={() => {
+          option.create(context);
+          onClose();
+          onCreated?.();
+        }}
+      >
+        <span
+          className="minke-tabs-create-menu__icon"
+          aria-hidden="true"
+        >
+          {option.icon}
+        </span>
+        <span className="minke-tabs-create-menu__label">
+          {option.label}
+        </span>
+        {binding !== undefined && (
+          <kbd
+            className="minke-tabs-create-menu__shortcut"
+            aria-hidden="true"
+          >
+            {formatShortcutBinding(binding, shortcutPlatform)}
+          </kbd>
+        )}
+      </button>
+    );
+  };
+
   return createPortal(
     <div
       id={id}
@@ -359,54 +428,12 @@ export function TabsCreateMenu({
       }}
       onKeyDown={handleKeyDown}
     >
-      {options.map((option) => {
-        const resolvedBinding = shortcutBinding?.(option.id);
-        const binding =
-          typeof resolvedBinding === "string" &&
-            resolvedBinding.length > 0
-            ? resolvedBinding
-            : undefined;
-        return (
-          <button
-            key={option.id}
-            type="button"
-            className="minke-tabs-create-menu__item"
-            data-option={option.id}
-            role="menuitem"
-            aria-keyshortcuts={
-              binding === undefined
-                ? undefined
-                : formatShortcutBindingAria(
-                    binding,
-                    shortcutPlatform,
-                  )
-            }
-            onClick={() => {
-              option.create(context);
-              onClose();
-              onCreated?.();
-            }}
-          >
-            <span
-              className="minke-tabs-create-menu__icon"
-              aria-hidden="true"
-            >
-              {option.icon}
-            </span>
-            <span className="minke-tabs-create-menu__label">
-              {option.label}
-            </span>
-            {binding !== undefined && (
-              <kbd
-                className="minke-tabs-create-menu__shortcut"
-                aria-hidden="true"
-              >
-                {formatShortcutBinding(binding, shortcutPlatform)}
-              </kbd>
-            )}
-          </button>
-        );
-      })}
+      {groups.map((group, index) => group.label === undefined
+        ? <Fragment key={index}>{group.options.map(renderOption)}</Fragment>
+        : <div key={index} className="minke-tabs-create-menu__group" role="group" aria-label={group.label}>
+            <div className="minke-tabs-create-menu__heading" aria-hidden="true">{group.label}</div>
+            {group.options.map(renderOption)}
+          </div>)}
     </div>,
     anchor.ownerDocument.body,
   );

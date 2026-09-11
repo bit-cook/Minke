@@ -6763,11 +6763,11 @@ test("Remote Hub trigger maps transitional and failed states to semantic colors"
     {
       attention: contract.declaration(
         `[data-minke-remote-hub-action][data-state="attention"] ${indicator}`,
-        "background",
+        "color",
       ),
       working: contract.declaration(
         `[data-minke-remote-hub-action][data-state="working"] ${indicator}`,
-        "background",
+        "color",
       ),
     },
     {
@@ -7241,7 +7241,9 @@ test("Remote Hub uses grouped sidebar navigation and stable detail panels", asyn
   );
   assert.match(trigger, /aria-haspopup="dialog"/u);
   assert.match(trigger, /aria-expanded="false"/u);
-  assert.match(trigger, /d="M2 8V6a2 2 0 0 1 2-2h16/u);
+  assert.match(trigger, /viewBox="0 0 16 16"/u);
+  assert.match(trigger, /<g data-minke-remote-hub-indicator="true">/u);
+  assert.doesNotMatch(trigger, /<span[^>]*data-minke-remote-hub-indicator/u);
   assert.match(
     trigger,
     /aria-label="Remote: needs attention"/u,
