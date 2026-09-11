@@ -110,13 +110,14 @@ function lifecycleOf(
   return config[id]?.lifecycle ?? "external";
 }
 
-function hasRuntimeProvider(
+function isRuntimeReady(
   component: RuntimeComponent,
   id: LocalModelRuntimeId,
 ): boolean {
-  return Object.hasOwn(
-    component.prepared.providers,
-    LOCAL_PROVIDER_IDS[id],
+  const providerId = LOCAL_PROVIDER_IDS[id];
+  return (
+    component.prepared.servicesReady?.includes(providerId) === true ||
+    Object.hasOwn(component.prepared.providers, providerId)
   );
 }
 
@@ -126,10 +127,10 @@ function assertUsableAutoStartCandidate(
 ): void {
   if (
     lifecycleOf(component.config, id) === "ensure-running" &&
-    !hasRuntimeProvider(component, id)
+    !isRuntimeReady(component, id)
   ) {
     throw new Error(
-      `model-runtime: ${LOCAL_RUNTIME_NAMES[id]} auto-start completed without an available model provider`,
+      `model-runtime: ${LOCAL_RUNTIME_NAMES[id]} auto-start completed without a ready service`,
     );
   }
 }
@@ -319,6 +320,7 @@ export class LiveModelRuntime {
     settings: ModelRuntimeSettings,
     commit: CommitModelRuntimeProviders,
     mode: ModelRuntimeReconfigureMode = "apply",
+    runtimeId?: LocalModelRuntimeId,
   ): Promise<void> {
     if (this.#disposeRequested) {
       return Promise.reject(
@@ -331,7 +333,7 @@ export class LiveModelRuntime {
           "model-runtime: live runtime is disposing",
         );
       }
-      await this.#reconfigure(settings, commit, mode);
+      await this.#reconfigure(settings, commit, mode, runtimeId);
     });
     this.#tail = operation.catch(() => undefined);
     return operation;
@@ -365,6 +367,7 @@ export class LiveModelRuntime {
     settings: ModelRuntimeSettings,
     commit: CommitModelRuntimeProviders,
     mode: ModelRuntimeReconfigureMode,
+    runtimeId?: LocalModelRuntimeId,
   ): Promise<void> {
     const candidates = new Map<
       LocalModelRuntimeId,
@@ -376,6 +379,7 @@ export class LiveModelRuntime {
     >();
     try {
       for (const id of ["lmStudio", "ollama"] as const) {
+        if (runtimeId !== undefined && id !== runtimeId) continue;
         const current = this.#components.get(id);
         if (
           current === undefined ||
@@ -397,7 +401,7 @@ export class LiveModelRuntime {
           currentLifecycle === nextLifecycle &&
           (
             nextLifecycle !== "ensure-running" ||
-            hasRuntimeProvider(current, id)
+            isRuntimeReady(current, id)
           )
         ) {
           continue;
@@ -614,6 +618,7 @@ export function installModelRuntimeControl(
             request.settings,
             commit,
             request.mode,
+            request.runtimeId,
           );
           response = modelRuntimesReconfiguredResponse(
             request.requestId,

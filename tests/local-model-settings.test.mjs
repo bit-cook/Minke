@@ -505,6 +505,80 @@ test("a failed settings read stays non-editable and can retry safely", async () 
   runtime.dispose();
 });
 
+test("local service saves isolate pending state, failures, and queued payloads", async () => {
+  let rejectOllama;
+  let finishLmStudio;
+  const ollamaGate = new Promise((_, reject) => { rejectOllama = reject; });
+  const lmStudioGate = new Promise((resolve) => { finishLmStudio = resolve; });
+  const writes = [];
+  const runtime = new LocalModelSettingsRuntime({
+    available: true,
+    async read() {
+      return {
+        available: { lmStudio: true, ollama: true },
+        settings: DEFAULT_MODEL_RUNTIME_SETTINGS,
+      };
+    },
+    async write(settings, runtimeId) {
+      writes.push({ settings, runtimeId });
+      await (writes.length === 1 ? ollamaGate : lmStudioGate);
+    },
+  });
+  await runtime.initialize();
+  runtime.setEnabled("ollama", true);
+  const pendingOllama = runtime.flush();
+  assert.equal(runtime.getSnapshot().status.ollama.applying, true);
+  assert.equal(runtime.getSnapshot().status.lmStudio.applying, false);
+  runtime.setEnabled("lmStudio", true);
+  rejectOllama(new Error("Ollama startup failed"));
+  await pendingOllama;
+  const failed = runtime.getSnapshot();
+  assert.equal(failed.settings.ollama.enabled, false);
+  assert.equal(failed.settings.lmStudio.enabled, true);
+  assert.deepEqual(failed.status.ollama, { applying: false, error: "write" });
+  assert.deepEqual(failed.status.lmStudio, { applying: true, error: undefined });
+  finishLmStudio();
+  await runtime.flush();
+  assert.deepEqual(writes, [
+    { runtimeId: "ollama", settings: {
+      lmStudio: { enabled: false }, ollama: { enabled: true },
+    } },
+    { runtimeId: "lmStudio", settings: {
+      lmStudio: { enabled: true }, ollama: { enabled: false },
+    } },
+  ]);
+  assert.equal(runtime.getSnapshot().status.ollama.error, "write");
+  assert.deepEqual(runtime.getSnapshot().status.lmStudio, { applying: false, error: undefined });
+  runtime.dispose();
+});
+
+test("targeted settings IPC preserves the other service even when its command is unavailable", async () => {
+  const handlers = new Map();
+  let persisted = { lmStudio: { enabled: true }, ollama: { enabled: false } };
+  const applied = [];
+  const binding = bindModelRuntimeSettingsIpc({
+    handle: (channel, listener) => handlers.set(channel, listener),
+    removeHandler: (channel) => handlers.delete(channel),
+  }, {
+    read: async () => persisted,
+    write: async (settings) => { persisted = settings; },
+  }, { lmStudio: false, ollama: true }, () => true, async (settings, mode, runtimeId) => {
+    applied.push({ settings, mode, runtimeId });
+  });
+  await handlers.get(MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL)(null, {
+    lmStudio: { enabled: false }, ollama: { enabled: true },
+  }, "ollama");
+  assert.deepEqual(persisted, { lmStudio: { enabled: true }, ollama: { enabled: true } });
+  assert.deepEqual(applied, [
+    { settings: persisted, mode: "apply", runtimeId: "ollama" },
+    { settings: persisted, mode: "finalize", runtimeId: "ollama" },
+  ]);
+  await assert.rejects(handlers.get(MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL)(
+    null, persisted, "unknown-service",
+  ), /runtime/u);
+  binding.dispose();
+});
+
 test("a rejected live switch rolls the optimistic setting back", async () => {
   const runtime = new LocalModelSettingsRuntime({
     available: true,
@@ -529,7 +603,7 @@ test("a rejected live switch rolls the optimistic setting back", async () => {
     true,
   );
   await runtime.flush();
-  assert.equal(runtime.getSnapshot().error, "write");
+  assert.equal(runtime.getSnapshot().status.lmStudio.error, "write");
   assert.equal(
     runtime.getSnapshot().settings.lmStudio.enabled,
     false,
@@ -545,7 +619,10 @@ function localModelViewRuntime(overrides = {}) {
     },
     settings: DEFAULT_MODEL_RUNTIME_SETTINGS,
     editable: true,
-    applying: false,
+    status: {
+      lmStudio: { applying: false, error: undefined },
+      ollama: { applying: false, error: undefined },
+    },
     error: undefined,
     revision: 1,
     ...overrides.snapshot,
@@ -615,6 +692,35 @@ test("native Models keeps both local services in one section", () => {
     "register:remove:settings.models.footer",
     "inject:remove:settings.models.footer",
   ]);
+});
+
+test("local service switches render independent busy and error states", () => {
+  for (const phase of ["pending", "failed"]) {
+    const runtime = localModelViewRuntime({ snapshot: {
+      available: { lmStudio: true, ollama: true },
+      status: {
+        lmStudio: { applying: false, error: undefined },
+        ollama: { applying: phase === "pending", error: phase === "failed" ? "write" : undefined },
+      },
+    } });
+    const harness = installLocalModelSlotHarness(runtime);
+    const services = harness.records[0];
+    const dom = new JSDOM(renderToStaticMarkup(createElement(services.component, services.options.inject())));
+    try {
+      const lmStudio = dom.window.document.querySelector('[data-minke-local-model-settings="lmStudio"]');
+      const ollama = dom.window.document.querySelector('[data-minke-local-model-settings="ollama"]');
+      assert.equal(lmStudio.querySelector('input').disabled, false);
+      assert.equal(lmStudio.querySelector('input').getAttribute('aria-busy'), "false");
+      assert.equal(lmStudio.hasAttribute('data-error'), false);
+      assert.doesNotMatch(lmStudio.textContent, /Could not apply|Applying/u);
+      assert.equal(ollama.querySelector('input').disabled, phase === "pending");
+      assert.equal(ollama.hasAttribute('data-error'), phase === "failed");
+      assert.match(ollama.textContent, phase === "failed" ? /Could not apply/u : /Applying/u);
+    } finally {
+      dom.window.close();
+      harness.dispose();
+    }
+  }
 });
 
 async function withBrowserGlobals(dom, callback) {

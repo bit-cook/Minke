@@ -111,6 +111,8 @@ export interface ModelRuntimeConfig {
 
 export interface PreparedModelRuntime {
   providers: Record<string, ProviderProfile>;
+  /** Reachable services, including ones whose model catalog is still empty. */
+  servicesReady?: readonly string[];
   prepareRequest(request: ModelRuntimeRequest): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -169,6 +171,7 @@ interface LmStudioModelState {
 
 interface PreparedAdapter {
   provider?: ProviderProfile;
+  serviceReady?: boolean;
   prepareRequest?(request: ModelRuntimeRequest): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -345,7 +348,10 @@ async function fetchListing(
 ): Promise<ModelListingEntry[] | undefined> {
   try {
     const value = await requestJson(host, url, token);
-    const data = (value as { data?: unknown } | null)?.data;
+    const listing = objectRecord(value);
+    const data = listing?.data;
+    // Ollama serializes an empty OpenAI model list as null instead of [].
+    if (listing?.object === "list" && data === null) return [];
     return Array.isArray(data)
       ? data.filter(
           (entry): entry is ModelListingEntry =>
@@ -989,10 +995,11 @@ async function discoverOpenAIModels(
   host: ModelRuntimeHost,
   baseURL: string,
   token: string | undefined,
-): Promise<ModelProfile[]> {
+): Promise<ModelProfile[] | undefined> {
   const listing = await fetchListing(host, `${baseURL}/models`, token);
+  if (listing === undefined) return undefined;
   const models = new Map<string, ModelProfile>();
-  for (const entry of listing ?? []) {
+  for (const entry of listing) {
     const profile = modelProfile(entry);
     if (profile !== undefined && !models.has(profile.id)) {
       models.set(profile.id, profile);
@@ -1265,13 +1272,14 @@ class OllamaAdapter implements ModelRuntimeAdapter {
         this.config.defaultMaxTokens,
         auth,
       );
-    const discover = async (): Promise<ModelProfile[]> =>
+    const discover = async (): Promise<ModelProfile[] | undefined> =>
       await discoverOpenAIModels(host, baseURL, undefined);
 
     let models = await discover();
-    if (models.length > 0) {
+    if (models !== undefined) {
       return {
-        provider: profile(models),
+        serviceReady: true,
+        ...(models.length > 0 ? { provider: profile(models) } : {}),
         dispose: async () => {},
       };
     }
@@ -1307,7 +1315,7 @@ class OllamaAdapter implements ModelRuntimeAdapter {
     for (let attempt = 0; attempt < STARTUP_ATTEMPTS; attempt += 1) {
       if (attempt > 0) await host.sleep(STARTUP_RETRY_DELAY_MS);
       models = await discover();
-      if (models.length > 0) break;
+      if (models !== undefined) break;
     }
 
     let disposed = false;
@@ -1317,17 +1325,18 @@ class OllamaAdapter implements ModelRuntimeAdapter {
       server.terminate();
       await server.done.catch(() => undefined);
     };
-    if (models.length === 0) {
+    if (models === undefined) {
       host.log(
         "warn",
-        "model-runtime: Ollama did not expose an OpenAI-compatible model after startup",
+        "model-runtime: Ollama did not expose a valid model catalog after startup",
       );
       return {
         dispose: stopOwnedServer,
       };
     }
     return {
-      provider: profile(models),
+      serviceReady: true,
+      ...(models.length > 0 ? { provider: profile(models) } : {}),
       dispose: stopOwnedServer,
     };
   }
@@ -1349,7 +1358,7 @@ class OpenAICompatibleAdapter implements ModelRuntimeAdapter {
       apiKeyEnv === undefined
         ? undefined
         : nonEmptyText(await host.resolveCredential(apiKeyEnv));
-    const models = await discoverOpenAIModels(host, baseURL, token);
+    const models = await discoverOpenAIModels(host, baseURL, token) ?? [];
     if (models.length === 0) {
       host.log(
         "info",
@@ -1434,6 +1443,12 @@ export async function prepareModelRuntime(
   let disposed = false;
   return {
     providers,
+    servicesReady: adapters.flatMap((adapter, index) =>
+      prepared[index]?.serviceReady === true ||
+        prepared[index]?.provider !== undefined
+        ? [adapter.providerId]
+        : []
+    ),
     prepareRequest: async (request) => {
       await requests.get(request.provider)?.(request);
     },

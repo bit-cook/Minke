@@ -195,7 +195,10 @@ export class HarnessRuntime {
   readonly #startupTimeoutMs: number;
   #modelRuntimes: LocalModelRuntimeLaunchOptions;
   #stagedModelRuntimes:
-    | LocalModelRuntimeLaunchOptions
+    | {
+        settings: LocalModelRuntimeLaunchOptions;
+        runtimeId: LocalModelRuntimeId | undefined;
+      }
     | undefined;
   #modelRuntimeTail: Promise<void> = Promise.resolve();
   #child: ChildProcess | undefined;
@@ -324,12 +327,14 @@ export class HarnessRuntime {
   reconfigureModelRuntimes(
     settings: ModelRuntimeSettings,
     mode: ModelRuntimeSettingsTransactionPhase = "apply",
+    runtimeId?: LocalModelRuntimeId,
   ): Promise<void> {
     if (mode === "finalize") {
       const staged = this.#stagedModelRuntimes;
       if (
         staged === undefined ||
-        !sameModelRuntimeSettings(staged, settings)
+        staged.runtimeId !== runtimeId ||
+        !sameModelRuntimeSettings(staged.settings, settings, runtimeId)
       ) {
         return Promise.reject(
           new Error(
@@ -337,7 +342,7 @@ export class HarnessRuntime {
           ),
         );
       }
-      this.#modelRuntimes = staged;
+      this.#modelRuntimes = staged.settings;
       this.#stagedModelRuntimes = undefined;
       return Promise.resolve();
     }
@@ -355,13 +360,16 @@ export class HarnessRuntime {
         );
       }
       try {
-        await control.reconfigureModelRuntimes(settings, mode);
+        await control.reconfigureModelRuntimes(settings, mode, runtimeId);
         if (mode === "apply") {
-          this.#stagedModelRuntimes =
-            modelRuntimesWithSettings(
+          this.#stagedModelRuntimes = {
+            settings: modelRuntimesWithSettings(
               this.#modelRuntimes,
               settings,
-            );
+              runtimeId,
+            ),
+            runtimeId,
+          };
         }
       } finally {
         if (mode === "rollback") {
@@ -521,9 +529,11 @@ function copyModelRuntimes(
 function modelRuntimesWithSettings(
   current: LocalModelRuntimeLaunchOptions,
   settings: ModelRuntimeSettings,
+  runtimeId?: LocalModelRuntimeId,
 ): LocalModelRuntimeLaunchOptions {
   const next = copyModelRuntimes(current);
   for (const descriptor of LOCAL_MODEL_ENVIRONMENT) {
+    if (runtimeId !== undefined && descriptor.id !== runtimeId) continue;
     next[descriptor.id].enabled =
       settings[descriptor.id].enabled;
   }
@@ -533,9 +543,11 @@ function modelRuntimesWithSettings(
 function sameModelRuntimeSettings(
   launch: LocalModelRuntimeLaunchOptions,
   settings: ModelRuntimeSettings,
+  runtimeId?: LocalModelRuntimeId,
 ): boolean {
   return LOCAL_MODEL_ENVIRONMENT.every(
     ({ id }) =>
+      (runtimeId !== undefined && id !== runtimeId) ||
       launch[id].enabled === settings[id].enabled,
   );
 }

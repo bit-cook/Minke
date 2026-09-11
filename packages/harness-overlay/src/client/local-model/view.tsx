@@ -57,8 +57,8 @@ function runtimeStatus(
   t: LocalModelTranslate,
 ): string {
   if (snapshot.error === "read") return t("readError");
-  if (snapshot.error === "write") return t("writeError");
-  if (snapshot.applying) return t("applying");
+  if (snapshot.status[id].error === "write") return t("writeError");
+  if (snapshot.status[id].applying) return t("applying");
   if (!snapshot.available[id]) return t("commandNotFound");
   return t("restartRequired");
 }
@@ -82,7 +82,7 @@ function LocalModelRuntimeSwitch({
   const disabled =
     !snapshot.editable ||
     !snapshot.available[id] ||
-    snapshot.applying;
+    snapshot.status[id].applying;
   const onChange = (
     event: ChangeEvent<HTMLInputElement>,
   ): void => {
@@ -99,7 +99,7 @@ function LocalModelRuntimeSwitch({
       data-minke-local-model-settings={id}
       data-error={
         snapshot.error === "read" ||
-          snapshot.error === "write"
+          snapshot.status[id].error === "write"
           ? ""
           : undefined
       }
@@ -117,7 +117,7 @@ function LocalModelRuntimeSwitch({
           role="switch"
           aria-label={`${descriptor.displayName}: ${autoStart}`}
           aria-describedby={`minke-local-model-${id}-status`}
-          aria-busy={snapshot.applying}
+          aria-busy={snapshot.status[id].applying}
           checked={snapshot.settings[id].enabled}
           disabled={disabled}
           onChange={onChange}

@@ -6,6 +6,7 @@ import type {
   DataHomeSettingsSnapshot,
 } from "@minke/harness-overlay/data-home-contract.ts";
 import type {
+  LocalModelRuntimeId,
   ModelRuntimeSettings,
   ModelRuntimeSettingsSnapshot,
 } from "@lencx/minke-model-runtime/contract";
@@ -131,7 +132,10 @@ export interface AppUpdatePort extends AppUpdateSettingsStore {
 export interface ModelRuntimeSettingsStore {
   readonly available: boolean;
   read(): Promise<ModelRuntimeSettingsSnapshot>;
-  write(settings: ModelRuntimeSettings): Promise<void>;
+  write(
+    settings: ModelRuntimeSettings,
+    runtimeId?: LocalModelRuntimeId,
+  ): Promise<void>;
 }
 
 export interface RemoteSettingsStore {
@@ -405,7 +409,10 @@ export interface DesktopBrowserBridge {
 
 export interface DesktopModelRuntimeBridge {
   read(): Promise<unknown>;
-  write(settings: ModelRuntimeSettings): Promise<void>;
+  write(
+    settings: ModelRuntimeSettings,
+    runtimeId?: LocalModelRuntimeId,
+  ): Promise<void>;
 }
 
 export interface DesktopRemoteBridge {

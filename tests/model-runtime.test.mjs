@@ -1354,10 +1354,11 @@ test("model-runtime process control acknowledges only after live commit", async 
       },
     },
     {
-      async reconfigure(settings, commit, mode) {
+      async reconfigure(settings, commit, mode, runtimeId) {
         await commit({});
         assert.equal(settings.lmStudio.enabled, true);
         assert.equal(mode, "apply");
+        assert.equal(runtimeId, "lmStudio");
         await commitGate;
       },
     },
@@ -1370,7 +1371,7 @@ test("model-runtime process control acknowledges only after live commit", async 
     createReconfigureModelRuntimesRequest(7, {
       lmStudio: { enabled: true },
       ollama: { enabled: false },
-    }),
+    }, "apply", "lmStudio"),
   );
   await Promise.resolve();
   assert.deepEqual(responses, []);
@@ -1384,6 +1385,29 @@ test("model-runtime process control acknowledges only after live commit", async 
     type: "model-runtimes/reconfigured",
   }]);
   cleanup();
+});
+
+test("targeted live reconciliation never retries an unrelated unavailable service", async () => {
+  const { host, commands } = createHost({
+    fetch: async (input) => {
+      if (String(input).includes(":11434/")) return json({ data: [] });
+      throw new Error("LM Studio is unavailable");
+    },
+  });
+  const live = await LiveModelRuntime.create({
+    lmStudio: { enabled: true, lifecycle: "external" },
+    ollama: { enabled: true, lifecycle: "external" },
+  }, host);
+  commands.length = 0;
+  try {
+    const settings = { lmStudio: { enabled: true }, ollama: { enabled: true } };
+    await live.reconfigure(settings, async () => {}, "apply", "ollama");
+    assert.deepEqual(commands, [], "an Ollama change must not attempt to start LM Studio");
+    await live.reconfigure({ ...settings, ollama: { enabled: false } }, async () => {}, "rollback", "ollama");
+    assert.deepEqual(commands, [], "Ollama rollback must leave LM Studio alone too");
+  } finally {
+    await live.dispose();
+  }
 });
 
 test("LM Studio auto-start honors an explicit loopback endpoint", async () => {
@@ -1928,19 +1952,27 @@ test("an unavailable Ollama adds no invalid empty provider", async () => {
 });
 
 test("Ollama auto-start stays owned even before a model is installed", async () => {
+  let running = false;
   let terminated = false;
   let resolveDone;
   const done = new Promise((resolve) => {
     resolveDone = resolve;
   });
   const { host } = createHost({
-    start: async () => ({
-      done,
-      terminate() {
-        terminated = true;
-        resolveDone({ exitCode: null, signal: "SIGTERM" });
-      },
-    }),
+    fetch: async () => {
+      if (!running) throw new Error("connection refused");
+      return json({ data: [] });
+    },
+    start: async () => {
+      running = true;
+      return {
+        done,
+        terminate() {
+          terminated = true;
+          resolveDone({ exitCode: null, signal: "SIGTERM" });
+        },
+      };
+    },
   });
 
   const prepared = await prepareModelRuntime(
@@ -1958,6 +1990,89 @@ test("Ollama auto-start stays owned even before a model is installed", async () 
   await prepared.dispose();
   assert.equal(terminated, true);
 });
+
+for (const data of [[], null]) {
+  test(`live Ollama auto-start accepts ${data === null ? "null data" : "an empty catalog"} and keeps the server running`, async () => {
+    let running = false;
+    let starts = 0;
+    let resolveDone;
+    const done = new Promise((resolve) => { resolveDone = resolve; });
+    const { host } = createHost({
+      fetch: async () => {
+        if (!running) throw new Error("connection refused");
+        return json({ object: "list", data });
+      },
+      start: async () => {
+        starts += 1;
+        running = true;
+        return {
+          done,
+          terminate() {
+            running = false;
+            resolveDone(commandResult());
+          },
+        };
+      },
+    });
+    const live = await LiveModelRuntime.create({
+      ollama: { enabled: true, lifecycle: "external" },
+    }, host);
+    try {
+      const settings = { lmStudio: { enabled: false }, ollama: { enabled: true } };
+      const published = [];
+      await live.reconfigure(settings, async (providers) => { published.push(providers); });
+      assert.equal(running, true, "an empty model catalog must not roll back a healthy service");
+      assert.deepEqual(published, [{}], "do not expose an unusable empty model provider");
+      await live.reconfigure(settings, async () => {});
+      assert.equal(starts, 1, "a ready empty service must not be started again");
+    } finally {
+      await live.dispose();
+    }
+    assert.equal(running, false, "the owned server is still cleaned up on exit");
+  });
+}
+
+test("an already running empty Ollama is reused without taking ownership", async () => {
+  const { host, commands } = createHost({ fetch: async () => json({ data: [] }) });
+  const prepared = await prepareModelRuntime({
+    ollama: { enabled: true, lifecycle: "ensure-running" },
+  }, host);
+  assert.deepEqual(prepared.providers, {});
+  assert.equal(commands.some(({ args }) => args[0] === "serve"), false);
+  await prepared.dispose();
+});
+
+for (const response of ["unreachable", "invalid catalog", "unmarked null catalog"]) {
+  test(`Ollama auto-start still fails for an ${response} endpoint`, async () => {
+    let terminated = false;
+    let resolveDone;
+    const done = new Promise((resolve) => { resolveDone = resolve; });
+    const { host } = createHost({
+      fetch: async () => {
+        if (response === "unreachable") throw new Error("connection refused");
+        return json(response === "unmarked null catalog" ? { data: null } : { error: "not a model catalog" });
+      },
+      start: async () => ({
+        done,
+        terminate() {
+          terminated = true;
+          resolveDone(commandResult());
+        },
+      }),
+    });
+    const live = await LiveModelRuntime.create({
+      ollama: { enabled: true, lifecycle: "external" },
+    }, host);
+    try {
+      await assert.rejects(live.reconfigure({
+        lmStudio: { enabled: false }, ollama: { enabled: true },
+      }, async () => assert.fail("an unhealthy service must not be published")), /Ollama auto-start/u);
+      assert.equal(terminated, true, "failed startup must release the owned process");
+    } finally {
+      await live.dispose();
+    }
+  });
+}
 
 test("generic OpenAI-compatible adapters discover configured loopback services", async () => {
   const { host } = createHost({

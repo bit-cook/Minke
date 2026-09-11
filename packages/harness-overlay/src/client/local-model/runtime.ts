@@ -1,7 +1,6 @@
 import {
   DEFAULT_MODEL_RUNTIME_SETTINGS,
   NO_MODEL_RUNTIME_AVAILABILITY,
-  parseModelRuntimeSettings,
   parseModelRuntimeSettingsSnapshot,
   type LocalModelRuntimeId,
   type ModelRuntimeAvailability,
@@ -13,14 +12,29 @@ import type {
 
 export type LocalModelSettingsErrorKind =
   | "unavailable"
-  | "read"
-  | "write";
+  | "read";
+
+interface LocalModelSaveStatus {
+  readonly applying: boolean;
+  readonly error: "write" | undefined;
+}
+
+type LocalModelSaveStatuses = Readonly<
+  Record<LocalModelRuntimeId, LocalModelSaveStatus>
+>;
+
+function idleStatuses(): LocalModelSaveStatuses {
+  return Object.freeze({
+    lmStudio: Object.freeze({ applying: false, error: undefined }),
+    ollama: Object.freeze({ applying: false, error: undefined }),
+  });
+}
 
 export interface LocalModelSettingsSnapshot {
   available: Readonly<ModelRuntimeAvailability>;
   settings: Readonly<ModelRuntimeSettings>;
   editable: boolean;
-  applying: boolean;
+  status: LocalModelSaveStatuses;
   error: LocalModelSettingsErrorKind | undefined;
   revision: number;
 }
@@ -34,7 +48,7 @@ function copySettings(
   };
 }
 
-/** Owns hydration, optimistic changes, and serialized two-runtime persistence. */
+/** Tracks each service independently while serializing writes to shared settings. */
 export class LocalModelSettingsRuntime {
   readonly store: ModelRuntimeSettingsStore;
   #snapshot: LocalModelSettingsSnapshot = Object.freeze({
@@ -45,13 +59,16 @@ export class LocalModelSettingsRuntime {
       DEFAULT_MODEL_RUNTIME_SETTINGS,
     )),
     editable: false,
-    applying: false,
+    status: idleStatuses(),
     error: undefined,
     revision: 0,
   });
   #listeners = new Set<() => void>();
   #saveTail: Promise<void> = Promise.resolve();
-  #saveGeneration = 0;
+  #saveGeneration: Record<LocalModelRuntimeId, number> = {
+    lmStudio: 0,
+    ollama: 0,
+  };
   #persistedSettings = copySettings(
     DEFAULT_MODEL_RUNTIME_SETTINGS,
   );
@@ -99,9 +116,7 @@ export class LocalModelSettingsRuntime {
     if (!this.#snapshot.available[id]) {
       throw new Error(`${id} command is unavailable`);
     }
-    const settings = copySettings(this.#snapshot.settings);
-    settings[id] = { enabled };
-    this.#commit(settings);
+    this.#commit(id, enabled);
   }
 
   async flush(): Promise<void> {
@@ -150,48 +165,61 @@ export class LocalModelSettingsRuntime {
     }
   }
 
-  #commit(value: Readonly<ModelRuntimeSettings>): void {
-    const settings = parseModelRuntimeSettings(value);
-    if (sameSettings(settings, this.#snapshot.settings)) return;
+  #commit(id: LocalModelRuntimeId, enabled: boolean): void {
+    if (enabled === this.#snapshot.settings[id].enabled) return;
+    const settings = copySettings(this.#snapshot.settings);
+    settings[id] = { enabled };
     this.#publish({
       settings,
-      applying: true,
-      error: undefined,
+      status: this.#statusWith(id, { applying: true, error: undefined }),
     });
 
-    const generation = ++this.#saveGeneration;
-    const payload = copySettings(settings);
+    const generation = ++this.#saveGeneration[id];
     const operation = this.#saveTail.then(async () => {
-      await this.store.write(payload);
+      // A queued sibling change must not replay an optimistic value whose
+      // save failed while this operation was waiting.
+      const payload = copySettings(this.#persistedSettings);
+      payload[id] = { enabled };
+      await this.store.write(payload, id);
     });
     this.#saveTail = operation.then(
       () => {
-        this.#persistedSettings = copySettings(payload);
+        this.#persistedSettings[id] = { enabled };
         if (
           this.#disposed ||
-          generation !== this.#saveGeneration
+          generation !== this.#saveGeneration[id]
         ) {
           return;
         }
         this.#publish({
-          applying: false,
-          error: undefined,
+          status: this.#statusWith(id, { applying: false, error: undefined }),
         });
       },
       () => {
         if (
           this.#disposed ||
-          generation !== this.#saveGeneration
+          generation !== this.#saveGeneration[id]
         ) {
           return;
         }
+        const restored = copySettings(this.#snapshot.settings);
+        restored[id] = { ...this.#persistedSettings[id] };
         this.#publish({
-          settings: this.#persistedSettings,
-          applying: false,
-          error: "write",
+          settings: restored,
+          status: this.#statusWith(id, { applying: false, error: "write" }),
         });
       },
     );
+  }
+
+  #statusWith(
+    id: LocalModelRuntimeId,
+    status: LocalModelSaveStatus,
+  ): LocalModelSaveStatuses {
+    return Object.freeze({
+      ...this.#snapshot.status,
+      [id]: Object.freeze(status),
+    });
   }
 
   #publish(
@@ -215,14 +243,4 @@ export class LocalModelSettingsRuntime {
     });
     for (const listener of [...this.#listeners]) listener();
   }
-}
-
-function sameSettings(
-  left: Readonly<ModelRuntimeSettings>,
-  right: Readonly<ModelRuntimeSettings>,
-): boolean {
-  return (
-    left.lmStudio.enabled === right.lmStudio.enabled &&
-    left.ollama.enabled === right.ollama.enabled
-  );
 }

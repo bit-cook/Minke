@@ -15,6 +15,7 @@ import {
   createReconfigureModelRuntimesRequest,
   isMinkeModelRuntimeControlMessage,
   parseModelRuntimeControlResponse,
+  type LocalModelRuntimeId,
   type ModelRuntimeReconfigureMode,
   type ModelRuntimeSettings,
 } from "@lencx/minke-model-runtime/contract";
@@ -179,12 +180,14 @@ export class HarnessControlChannel {
   reconfigureModelRuntimes(
     settings: ModelRuntimeSettings,
     mode: ModelRuntimeReconfigureMode = "apply",
+    runtimeId?: LocalModelRuntimeId,
   ): Promise<void> {
     const requestId = this.#nextRequestId;
     const request = createReconfigureModelRuntimesRequest(
       requestId,
       settings,
       mode,
+      runtimeId,
     );
     this.#nextRequestId += 1;
     return this.#sendRequest(

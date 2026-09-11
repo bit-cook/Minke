@@ -269,8 +269,8 @@ export function desktopModelRuntimeSettingsStore(
         await bridge.read(),
       );
     },
-    async write(settings) {
-      await bridge.write(parseModelRuntimeSettings(settings));
+    async write(settings, runtimeId) {
+      await bridge.write(parseModelRuntimeSettings(settings), runtimeId);
     },
   };
 }

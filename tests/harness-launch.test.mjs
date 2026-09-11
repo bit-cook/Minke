@@ -458,6 +458,10 @@ test("Harness control waits for live model-runtime reconciliation", async () => 
       ollama: { enabled: false },
     },
   }]);
+  await control.reconfigureModelRuntimes({
+    lmStudio: { enabled: true }, ollama: { enabled: true },
+  }, "apply", "ollama");
+  assert.equal(parseReconfigureModelRuntimesRequest(requests.at(-1)).runtimeId, "ollama");
   control.dispose();
 });
 
@@ -822,6 +826,11 @@ test("model-runtime control messages reject non-exact payloads", () => {
     parseReconfigureModelRuntimesRequest(request),
     request,
   );
+  const targeted = createReconfigureModelRuntimesRequest(2, request.settings, "rollback", "ollama");
+  assert.deepEqual(parseReconfigureModelRuntimesRequest(targeted), targeted);
+  for (const runtimeId of [null, undefined, "unknown-service", 1]) {
+    assert.throws(() => parseReconfigureModelRuntimesRequest({ ...request, runtimeId }), /runtime/u);
+  }
   assert.throws(
     () => parseReconfigureModelRuntimesRequest({
       ...request,
@@ -836,6 +845,78 @@ test("model-runtime control messages reject non-exact payloads", () => {
     }),
     /invalid model runtime control response/u,
   );
+});
+
+test("targeted service settings update only their own crash-recovery launch state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "minke-scoped-model-runtime-"));
+  const runtimeRoot = join(root, "runtime");
+  const dshHome = join(root, "data");
+  let runtime;
+  try {
+    const patchRoot = join(runtimeRoot, "node_modules", "@lencx", "minke-harness-overlay");
+    const pnpmRoot = join(runtimeRoot, "node_modules", "pnpm", "bin");
+    await Promise.all([patchRoot, pnpmRoot, dshHome, join(runtimeRoot, "bin")].map(
+      async (path) => mkdir(path, { recursive: true }),
+    ));
+    await Promise.all([
+      writeFile(join(runtimeRoot, "dsh-runtime.json"), JSON.stringify({
+        schemaVersion: 3,
+        productBundle: { packageName: "@lencx/minke-harness-overlay", patch: "cordis.patch.yml" },
+      })),
+      writeFile(join(patchRoot, "cordis.patch.yml"), ""),
+      writeFile(join(pnpmRoot, "pnpm.cjs"), ""),
+      writeFile(join(runtimeRoot, "index.mjs"), `
+        import { appendFile } from "node:fs/promises";
+        import { join } from "node:path";
+        await appendFile(join(process.env.DSH_HOME, "launches.jsonl"), JSON.stringify({
+          lmStudio: process.env.MINKE_LM_STUDIO_ENABLED,
+          ollama: process.env.MINKE_OLLAMA_ENABLED,
+        }) + "\\n");
+        process.stdout.write(${JSON.stringify(`dsh web: ${HARNESS_AUTHENTICATED_URL}\n`)});
+        process.on("message", async (message) => {
+          if (message?.type !== "model-runtimes/reconfigure") return;
+          await appendFile(join(process.env.DSH_HOME, "requests.jsonl"), JSON.stringify(message) + "\\n");
+          process.send({
+            channel: message.channel, protocolVersion: message.protocolVersion,
+            requestId: message.requestId, type: "model-runtimes/reconfigured",
+          });
+        });
+      `),
+    ]);
+    runtime = new HarnessRuntime({
+      runtimeRoot, dshHome, electronExecutable: process.execPath,
+      modelRuntimes: { lmStudio: { enabled: false }, ollama: { enabled: false } },
+      pluginManagement: { safeMode: false, disabledPlugins: [] },
+      startupTimeoutMs: 2_000, shutdownTimeoutMs: 2_000, modelRuntimeControlTimeoutMs: 2_000,
+    });
+    await runtime.start();
+    // A persisted LM Studio opt-in may differ from launch state if its CLI
+    // was absent at boot. An Ollama update must preserve that launch state.
+    const settings = { lmStudio: { enabled: true }, ollama: { enabled: true } };
+    await runtime.reconfigureModelRuntimes(settings, "apply", "ollama");
+    await assert.rejects(runtime.reconfigureModelRuntimes(settings, "finalize", "lmStudio"), /no matching staged apply/u);
+    await runtime.reconfigureModelRuntimes(settings, "finalize", "ollama");
+    const reverted = { ...settings, ollama: { enabled: false } };
+    await runtime.reconfigureModelRuntimes(reverted, "apply", "ollama");
+    await runtime.reconfigureModelRuntimes(settings, "rollback", "ollama");
+    await assert.rejects(runtime.reconfigureModelRuntimes(reverted, "finalize", "ollama"), /no matching staged apply/u);
+    await runtime.stop();
+    await runtime.start();
+    const readJsonLines = async (name) => (await readFile(join(dshHome, name), "utf8")).trim().split("\n").map(JSON.parse);
+    assert.deepEqual(await readJsonLines("launches.jsonl"), [
+      { lmStudio: "0", ollama: "0" },
+      { lmStudio: "0", ollama: "1" },
+    ]);
+    const requests = await readJsonLines("requests.jsonl");
+    assert.deepEqual(requests.map(({ runtimeId, mode }) => ({ runtimeId, mode })), [
+      { runtimeId: "ollama", mode: "apply" },
+      { runtimeId: "ollama", mode: "apply" },
+      { runtimeId: "ollama", mode: "rollback" },
+    ]);
+  } finally {
+    await runtime?.stop().catch(() => undefined);
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("Harness window navigation cannot leave the bootstrap pending forever", async () => {

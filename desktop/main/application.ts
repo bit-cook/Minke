@@ -534,10 +534,11 @@ class DesktopApplication {
           windows.authorize(
             candidate as IpcMainInvokeEvent,
           ),
-        async (settings, mode) => {
+        async (settings, mode, runtimeId) => {
           await runtime.reconfigureModelRuntimes(
             settings,
             mode,
+            runtimeId,
           );
         },
       );

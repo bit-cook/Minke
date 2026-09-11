@@ -30,6 +30,13 @@ export type LocalModelRuntimeId =
 export const LOCAL_MODEL_RUNTIME_IDS: readonly LocalModelRuntimeId[] =
   LOCAL_MODEL_RUNTIMES.map(({ id }) => id);
 
+export function parseLocalModelRuntimeId(value: unknown): LocalModelRuntimeId {
+  if (value !== "lmStudio" && value !== "ollama") {
+    throw new TypeError("invalid local model runtime id");
+  }
+  return value;
+}
+
 export interface LocalModelRuntimePreference {
   enabled: boolean;
 }
@@ -60,6 +67,7 @@ export interface ReconfigureModelRuntimesRequest {
   readonly type: "model-runtimes/reconfigure";
   readonly mode: ModelRuntimeReconfigureMode;
   readonly settings: ModelRuntimeSettings;
+  readonly runtimeId?: LocalModelRuntimeId;
 }
 
 export type ModelRuntimeReconfigureMode =
@@ -262,6 +270,7 @@ export function createReconfigureModelRuntimesRequest(
   requestId: number,
   settings: unknown,
   mode: ModelRuntimeReconfigureMode = "apply",
+  runtimeId?: LocalModelRuntimeId,
 ): ReconfigureModelRuntimesRequest {
   if (mode !== "apply" && mode !== "rollback") {
     throw new TypeError(
@@ -276,6 +285,9 @@ export function createReconfigureModelRuntimesRequest(
     type: "model-runtimes/reconfigure",
     mode,
     settings: parseModelRuntimeSettings(settings),
+    ...(runtimeId === undefined
+      ? {}
+      : { runtimeId: parseLocalModelRuntimeId(runtimeId) }),
   };
 }
 
@@ -314,6 +326,7 @@ export function parseReconfigureModelRuntimesRequest(
       "type",
       "mode",
       "settings",
+      ...(Object.hasOwn(request, "runtimeId") ? ["runtimeId"] : []),
     ]) ||
     request.channel !== MINKE_MODEL_RUNTIME_CONTROL_CHANNEL ||
     request.protocolVersion !==
@@ -330,6 +343,9 @@ export function parseReconfigureModelRuntimesRequest(
     parseControlRequestId(request.requestId),
     request.settings,
     request.mode,
+    Object.hasOwn(request, "runtimeId")
+      ? parseLocalModelRuntimeId(request.runtimeId)
+      : undefined,
   );
 }
 

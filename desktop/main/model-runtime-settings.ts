@@ -4,6 +4,7 @@ import {
   LOCAL_MODEL_RUNTIMES,
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
   MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
+  parseLocalModelRuntimeId,
   parseModelRuntimeAvailability,
   parseModelRuntimeSettings,
   type LocalModelRuntimeId,
@@ -66,6 +67,7 @@ export function bindModelRuntimeSettingsIpc(
   reconfigure: (
     settings: ModelRuntimeSettings,
     mode: ModelRuntimeSettingsTransactionPhase,
+    runtimeId?: LocalModelRuntimeId,
   ) => Promise<void>,
 ): ModelRuntimeSettingsBinding {
   const available = parseModelRuntimeAvailability(
@@ -93,11 +95,18 @@ export function bindModelRuntimeSettingsIpc(
   const write = async (
     event: unknown,
     value: unknown,
+    runtimeIdValue?: unknown,
   ): Promise<void> => {
     assertAuthorized(authorize, event);
-    const settings = parseModelRuntimeSettings(value);
-    for (const id of LOCAL_MODEL_RUNTIME_IDS) {
-      if (settings[id].enabled && !available[id]) {
+    const requested = parseModelRuntimeSettings(value);
+    const runtimeId = runtimeIdValue === undefined
+      ? undefined
+      : parseLocalModelRuntimeId(runtimeIdValue);
+    const targets = runtimeId === undefined
+      ? LOCAL_MODEL_RUNTIME_IDS
+      : [runtimeId];
+    for (const id of targets) {
+      if (requested[id].enabled && !available[id]) {
         throw new Error(
           `${RUNTIME_NAMES[id]} command is unavailable`,
         );
@@ -107,14 +116,18 @@ export function bindModelRuntimeSettingsIpc(
       const previous = parseModelRuntimeSettings(
         await store.read(),
       );
+      const settings = runtimeId === undefined
+        ? requested
+        : { ...previous, [runtimeId]: { ...requested[runtimeId] } };
       try {
-        await reconfigure(settings, "apply");
+        await reconfigure(settings, "apply", runtimeId);
       } catch (error) {
         await rollbackRuntime(
           reconfigure,
           previous,
           error,
           "model runtime reconciliation failed and rollback also failed",
+          runtimeId,
         );
         throw error;
       }
@@ -126,10 +139,11 @@ export function bindModelRuntimeSettingsIpc(
           previous,
           error,
           "model runtime persistence failed and live rollback also failed",
+          runtimeId,
         );
         throw error;
       }
-      await reconfigure(settings, "finalize");
+      await reconfigure(settings, "finalize", runtimeId);
     });
     writeTail = operation.catch(() => undefined);
     await operation;
@@ -152,13 +166,15 @@ async function rollbackRuntime(
   reconfigure: (
     settings: ModelRuntimeSettings,
     mode: ModelRuntimeSettingsTransactionPhase,
+    runtimeId?: LocalModelRuntimeId,
   ) => Promise<void>,
   previous: ModelRuntimeSettings,
   primaryError: unknown,
   message: string,
+  runtimeId?: LocalModelRuntimeId,
 ): Promise<void> {
   try {
-    await reconfigure(previous, "rollback");
+    await reconfigure(previous, "rollback", runtimeId);
   } catch (rollbackError) {
     throw new AggregateError(
       [primaryError, rollbackError],
