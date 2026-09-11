@@ -20,34 +20,14 @@ import type {
   LocalModelSettingsSnapshot,
 } from "./runtime.ts";
 
-const PI_AI_SETTINGS_NAMESPACE = "llm-pi-ai";
 const LOCAL_MODEL_FOOTER_ID = "minke-local-model-runtimes";
 
 type LocalModelRuntimeDescriptor =
   (typeof LOCAL_MODEL_RUNTIMES)[number];
 
-interface ProviderDirectoryEntry {
-  readonly provider: string;
-}
-
 interface LocalModelSlotInjected {
   readonly runtime: LocalModelSettingsRuntime;
   readonly t: LocalModelTranslate;
-}
-
-interface LocalModelProviderCardProps
-  extends LocalModelSlotInjected {
-  readonly provider: ProviderDirectoryEntry;
-  readonly configured: boolean;
-  readonly keyConfigured: boolean;
-}
-
-function descriptorForProvider(
-  provider: string,
-): LocalModelRuntimeDescriptor | undefined {
-  return LOCAL_MODEL_RUNTIMES.find(
-    (descriptor) => descriptor.providerId === provider,
-  );
 }
 
 function useLocalModelSettings(
@@ -160,39 +140,21 @@ function LocalModelRuntimeSwitch({
   );
 }
 
-function LocalModelProviderCard({
-  provider,
-  runtime,
-  t,
-}: LocalModelProviderCardProps): ReactNode {
-  const descriptor = descriptorForProvider(provider.provider);
-  if (descriptor === undefined) return null;
-  const snapshot = useLocalModelSettings(runtime);
-  return (
-    <div
-      data-minke-local-model-provider-card={descriptor.id}
-      className="minke-local-model-provider-card"
-    >
-      <LocalModelRuntimeSwitch
-        descriptor={descriptor}
-        runtime={runtime}
-        snapshot={snapshot}
-        t={t}
-      />
-    </div>
-  );
-}
-
-function LocalModelFooter({
+function LocalModelServices({
   runtime,
   t,
 }: LocalModelSlotInjected): ReactNode {
   const snapshot = useLocalModelSettings(runtime);
   return (
-    <div
+    <section
       data-minke-local-model-runtime-settings=""
       className="minke-local-model-runtime-settings"
+      aria-labelledby="minke-local-model-services-title"
     >
+      <div className="minke-local-model-runtime-heading">
+        <h3 id="minke-local-model-services-title">{t("servicesTitle")}</h3>
+        <p>{t("servicesDescription")}</p>
+      </div>
       <ul className="minke-local-model-runtime-list">
         {LOCAL_MODEL_RUNTIMES.map((descriptor) => (
           <li
@@ -202,14 +164,11 @@ function LocalModelFooter({
           >
             <span className="minke-local-model-row__identity">
               <span className="minke-local-model-row__heading">
-                <span>{descriptor.displayName}</span>
-                <span className="minke-local-model-row__tag">
-                  {t("localTag")}
-                </span>
+                {descriptor.displayName}
               </span>
               <span className="minke-local-model-row__note">
                 {snapshot.available[descriptor.id]
-                  ? t("noModels")
+                  ? t("serviceAvailable")
                   : t("commandNotFound")}
               </span>
             </span>
@@ -224,14 +183,13 @@ function LocalModelFooter({
           </li>
         ))}
       </ul>
-    </div>
+    </section>
   );
 }
 
 /**
- * Register local runtime lifecycle controls into the Models page's public
- * alpha.2 extension seats. The keyed entry handles live provider cards; the
- * footer supplies rows while either local provider is absent.
+ * Keep both local service lifecycle controls together in the Models footer,
+ * independent of whether a provider currently has a discovered model catalog.
  */
 export function installLocalModelSettings(
   slots: SlotService,
@@ -239,41 +197,23 @@ export function installLocalModelSettings(
   t: LocalModelTranslate,
 ): () => void {
   const inject = () => ({ runtime, t });
-  const disconnectProvider = slots.inject(
-    "settings.models.provider-card",
+  const disconnect = slots.inject(
+    "settings.models.footer",
     () =>
-      slots.register<LocalModelProviderCardProps>(
+      slots.register<LocalModelSlotInjected>(
         {
-          name: "settings.models.provider-card",
-          key: PI_AI_SETTINGS_NAMESPACE,
+          name: "settings.models.footer",
+          id: LOCAL_MODEL_FOOTER_ID,
+          order: 0,
           inject,
         },
-        LocalModelProviderCard,
+        LocalModelServices,
       ),
   );
-  try {
-    const disconnectFooter = slots.inject(
-      "settings.models.footer",
-      () =>
-        slots.register<LocalModelSlotInjected>(
-          {
-            name: "settings.models.footer",
-            id: LOCAL_MODEL_FOOTER_ID,
-            order: 0,
-            inject,
-          },
-          LocalModelFooter,
-        ),
-    );
-    let disposed = false;
-    return () => {
-      if (disposed) return;
-      disposed = true;
-      disconnectFooter();
-      disconnectProvider();
-    };
-  } catch (error) {
-    disconnectProvider();
-    throw error;
-  }
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    disconnect();
+  };
 }

@@ -585,106 +585,35 @@ function installLocalModelSlotHarness(runtime) {
   return { dispose, events, records };
 }
 
-test("native Models slots render local provider controls and fallback rows", () => {
+test("native Models keeps both local services in one section", () => {
   const runtime = localModelViewRuntime();
   const harness = installLocalModelSlotHarness(runtime);
-  assert.deepEqual(
-    harness.records.map(({ options }) => options),
-    [
-      {
-        name: "settings.models.provider-card",
-        key: "llm-pi-ai",
-        inject: harness.records[0].options.inject,
-      },
-      {
-        name: "settings.models.footer",
-        id: "minke-local-model-runtimes",
-        order: 0,
-        inject: harness.records[1].options.inject,
-      },
-    ],
-  );
-
-  const provider = harness.records[0];
-  const providerProps = provider.options.inject();
-  const lmStudioMarkup = renderToStaticMarkup(
-    createElement(provider.component, {
-      ...providerProps,
-      configured: true,
-      keyConfigured: false,
-      provider: {
-        provider: "lm-studio",
-        displayName: "LM Studio",
-        settingsNs: "llm-pi-ai",
-        settingsPath: ["providers", "lm-studio"],
-        active: true,
-      },
-    }),
-  );
-  assert.match(
-    lmStudioMarkup,
-    /data-minke-local-model-provider-card="lmStudio"/u,
-  );
-  assert.match(lmStudioMarkup, /role="switch"/u);
-  assert.match(lmStudioMarkup, /aria-label="LM Studio: Auto-start"/u);
-  assert.equal(
-    renderToStaticMarkup(
-      createElement(provider.component, {
-        ...providerProps,
-        configured: true,
-        keyConfigured: true,
-        provider: {
-          provider: "openai",
-          displayName: "OpenAI",
-          settingsNs: "llm-pi-ai",
-          settingsPath: ["providers", "openai"],
-          active: true,
-        },
-      }),
-    ),
-    "",
-    "the keyed adapter family seat must ignore unrelated pi-ai routes",
-  );
-
-  const footer = harness.records[1];
-  const footerMarkup = renderToStaticMarkup(
-    createElement(
-      footer.component,
-      footer.options.inject(),
-    ),
-  );
-  assert.match(
-    footerMarkup,
-    /data-minke-local-model-runtime-settings=""/u,
-  );
-  assert.match(
-    footerMarkup,
-    /data-minke-local-model-footer-row="lmStudio"/u,
-  );
-  assert.match(
-    footerMarkup,
-    /data-minke-local-model-footer-row="ollama"/u,
-  );
-  assert.match(footerMarkup, /Ollama: Auto-start/u);
-  assert.match(
-    footerMarkup,
-    /Local command not found; configure a service URL manually/u,
-  );
-  assert.match(
-    LOCAL_MODEL_SETTINGS_STYLES,
-    /:root:has\([\s\S]*data-minke-local-model-provider-card="lmStudio"[\s\S]*data-minke-local-model-footer-row="lmStudio"/u,
-  );
-  assert.doesNotMatch(
-    LOCAL_MODEL_SETTINGS_STYLES,
-    /minke-local-model-(?:configure-card|hidden-field|token-hint)/u,
-  );
-
+  assert.deepEqual(harness.records.map(({ options }) => options.name), [
+    "settings.models.footer",
+  ]);
+  const services = harness.records[0];
+  const markup = renderToStaticMarkup(createElement(
+    services.component,
+    services.options.inject(),
+  ));
+  assert.match(markup, /aria-labelledby="minke-local-model-services-title"/u);
+  assert.match(markup, /Local services/u);
+  assert.match(markup, /data-minke-local-model-footer-row="lmStudio"/u);
+  assert.match(markup, /data-minke-local-model-footer-row="ollama"/u);
+  assert.equal((markup.match(/role="switch"/gu) ?? []).length, 2);
+  assert.match(markup, /aria-label="LM Studio: Auto-start"/u);
+  assert.match(markup, /aria-label="Ollama: Auto-start"/u);
+  assert.match(markup, /Available on this device/u);
+  assert.match(markup, /Local command not found; configure a service URL manually/u);
+  assert.doesNotMatch(markup, /No models detected/u,
+    "command availability does not claim to know the provider's model catalog");
+  assert.doesNotMatch(LOCAL_MODEL_SETTINGS_STYLES, /data-minke-local-model-provider-card/u,
+    "provider discovery must not hide either local service control");
   harness.dispose();
-  assert.deepEqual(harness.events.slice(-4), [
+  harness.dispose();
+  assert.deepEqual(harness.events.slice(-2), [
     "register:remove:settings.models.footer",
     "inject:remove:settings.models.footer",
-    "register:remove:settings.models.provider-card",
-    "inject:remove:settings.models.provider-card",
   ]);
 });
 
@@ -725,7 +654,7 @@ async function withBrowserGlobals(dom, callback) {
   }
 }
 
-test("native provider auto-start switches delegate through the settings runtime", async () => {
+test("local service auto-start switches delegate through the settings runtime", async () => {
   const changes = [];
   const runtime = localModelViewRuntime({
     setEnabled(id, enabled) {
@@ -733,7 +662,7 @@ test("native provider auto-start switches delegate through the settings runtime"
     },
   });
   const harness = installLocalModelSlotHarness(runtime);
-  const provider = harness.records[0];
+  const services = harness.records[0];
   const dom = new JSDOM(
     '<!doctype html><div id="root"></div>',
     { pretendToBeVisual: true },
@@ -748,22 +677,11 @@ test("native provider auto-start switches delegate through the settings runtime"
       try {
         await act(async () => {
           root.render(
-            createElement(provider.component, {
-              ...provider.options.inject(),
-              configured: true,
-              keyConfigured: false,
-              provider: {
-                provider: "lm-studio",
-                displayName: "LM Studio",
-                settingsNs: "llm-pi-ai",
-                settingsPath: ["providers", "lm-studio"],
-                active: true,
-              },
-            }),
+            createElement(services.component, services.options.inject()),
           );
         });
         const input = container.querySelector(
-          'input[role="switch"]',
+          'input[role="switch"][aria-label="LM Studio: Auto-start"]',
         );
         assert.ok(input instanceof dom.window.HTMLInputElement);
         assert.equal(input.disabled, false);
@@ -786,7 +704,7 @@ test("native provider auto-start switches delegate through the settings runtime"
   }
 });
 
-test("local model installation targets only native Models extension slots", async () => {
+test("local model installation targets the native Models footer", async () => {
   const originalWindow = Object.getOwnPropertyDescriptor(
     globalThis,
     "window",
@@ -844,10 +762,7 @@ test("local model installation targets only native Models extension slots", asyn
 
     installLocalModel(ctx);
     await Promise.resolve();
-    assert.deepEqual(slotNames, [
-      "settings.models.provider-card",
-      "settings.models.footer",
-    ]);
+    assert.deepEqual(slotNames, ["settings.models.footer"]);
     assert.equal(slotNames.includes("settings.section"), false);
   } finally {
     for (const cleanup of cleanups.reverse()) cleanup();

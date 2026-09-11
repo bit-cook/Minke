@@ -1,6 +1,9 @@
 export const localModelZh = {
   modelsTitle: "模型",
   autoStart: "自动启动",
+  servicesTitle: "本地服务",
+  servicesDescription: "管理本地模型服务的自动启动。",
+  serviceAvailable: "可在本机启动",
   restartRequired: "立即生效",
   applying: "正在应用…",
   localTag: "本地",
@@ -32,6 +35,9 @@ export const localModelEn: Record<
 > = {
   modelsTitle: "Models",
   autoStart: "Auto-start",
+  servicesTitle: "Local services",
+  servicesDescription: "Manage automatic startup for local model services.",
+  serviceAvailable: "Available on this device",
   restartRequired: "Applies immediately",
   applying: "Applying…",
   localTag: "Local",
