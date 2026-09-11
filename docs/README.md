@@ -11,4 +11,4 @@
 
 ## 版本说明
 
-- [Minke v0.6.0](./releases/v0.6.0.md)
+- [Minke v0.6.1](./releases/v0.6.1.md)
