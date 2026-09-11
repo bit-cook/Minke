@@ -8,3 +8,7 @@
 - [启动与页面加载故障](./startup-troubleshooting.md)：重试加载、调整等待时间和收集反馈信息。
 - [安装与移动端访问（English）](../README.md)
 - [安装与移动端访问（简体中文）](../README.zh-CN.md)
+
+## 版本说明
+
+- [Minke v0.6.0](./releases/v0.6.0.md)

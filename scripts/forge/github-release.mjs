@@ -165,6 +165,7 @@ export async function discoverReleaseAssets(directory) {
 
 export async function publishGithubRelease({
   assets,
+  notesFile,
   packageVersion,
   releaseTag,
   repository,
@@ -176,6 +177,14 @@ export async function publishGithubRelease({
     repository,
   });
   assertAssetList(assets);
+
+  const releaseNotesPath = resolve(
+    notesFile ?? join(projectRoot, "docs", "releases", `${releaseTag}.md`),
+  );
+  const releaseNotes = await readFile(releaseNotesPath, "utf8");
+  if (releaseNotes.trim() === "") {
+    throw new Error(`release notes must not be empty: ${releaseNotesPath}`);
+  }
 
   const existing = await runGh([
     "release",
@@ -196,7 +205,8 @@ export async function publishGithubRelease({
       ...assets,
       "--draft",
       "--verify-tag",
-      "--generate-notes",
+      "--notes-file",
+      releaseNotesPath,
       "--title",
       `Minke ${releaseTag}`,
     ]),
