@@ -38,6 +38,9 @@ import {
   HarnessLifecycle,
 } from "@minke/desktop/main/harness-lifecycle.ts";
 import {
+  resolveHarnessTimeout,
+} from "@minke/desktop/main/harness-timeout.ts";
+import {
   DEFAULT_MODEL_RUNTIME_CONTROL_TIMEOUT_MS,
   HarnessControlChannel,
   LM_STUDIO_COLD_START_BUDGET_MS,
@@ -1038,4 +1041,288 @@ test("Harness navigation errors redact the launch capability", async () => {
   );
   assert.equal(remoteStarts, 0);
   assert.equal(lifecycle.url, HARNESS_ORIGIN);
+});
+
+function navigationFixture(options = {}) {
+  const attempts = [];
+  let runtimeStarts = 0;
+  let remoteStarts = 0;
+  let stops = 0;
+  let loading = true;
+  let destroyed = false;
+  const lifecycle = new HarnessLifecycle({
+    runtime: {
+      async start() {
+        runtimeStarts += 1;
+        return harnessEndpoint();
+      },
+    },
+    remote: {
+      async detach() {},
+      async start() {
+        remoteStarts += 1;
+      },
+    },
+    ...options,
+  });
+  const window = {
+    isDestroyed: () => destroyed,
+    loadURL(url) {
+      loading = true;
+      const attempt = Promise.withResolvers();
+      attempts.push({ url, ...attempt });
+      return attempt.promise;
+    },
+    webContents: {
+      isDestroyed: () => destroyed,
+      getURL: () => HARNESS_ORIGIN,
+      isLoadingMainFrame: () => loading,
+      stop() {
+        stops += 1;
+        attempts.at(-1).reject(new Error("ERR_ABORTED"));
+      },
+    },
+  };
+  return {
+    lifecycle,
+    window,
+    attempts,
+    counts: () => ({ runtimeStarts, remoteStarts, stops }),
+    finish() {
+      loading = false;
+      attempts.at(-1).resolve();
+    },
+    destroy() {
+      destroyed = true;
+    },
+  };
+}
+
+const nextNavigationTurn = () => new Promise(setImmediate);
+
+test("default startup allows a page that needs 20 seconds to load (#18)", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const fixture = navigationFixture();
+  const outcome = fixture.lifecycle.start(fixture.window).catch(
+    (error) => error,
+  );
+  await nextNavigationTurn();
+
+  t.mock.timers.tick(20_000);
+  fixture.finish();
+
+  assert.equal(await outcome, HARNESS_ORIGIN);
+  assert.deepEqual(fixture.counts(), {
+    runtimeStarts: 1,
+    remoteStarts: 1,
+    stops: 0,
+  });
+});
+
+test("default navigation remains bounded at 90 seconds", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const fixture = navigationFixture();
+  const outcome = fixture.lifecycle.start(fixture.window).catch(
+    (error) => error,
+  );
+  await nextNavigationTurn();
+
+  t.mock.timers.tick(89_999);
+  assert.equal(fixture.counts().stops, 0);
+  t.mock.timers.tick(1);
+  const error = await outcome;
+  assert.equal(error.name, "HarnessNavigationError");
+  assert.match(error.message, /did not finish within 90000 ms/u);
+  assert.deepEqual(fixture.counts(), {
+    runtimeStarts: 1,
+    remoteStarts: 0,
+    stops: 1,
+  });
+});
+
+test("navigation retry reuses the ready runtime and waits before remote exposure", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const decision = Promise.withResolvers();
+  const errors = [];
+  const fixture = navigationFixture({
+    navigationTimeoutMs: 20,
+    requestNavigationRetry(error) {
+      errors.push(error);
+      return decision.promise;
+    },
+  });
+  const outcome = fixture.lifecycle.start(fixture.window).catch(
+    (error) => error,
+  );
+  await nextNavigationTurn();
+  t.mock.timers.tick(20);
+  await nextNavigationTurn();
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].name, "HarnessNavigationError");
+  assert.deepEqual(fixture.counts(), {
+    runtimeStarts: 1,
+    remoteStarts: 0,
+    stops: 1,
+  });
+
+  decision.resolve(true);
+  await nextNavigationTurn();
+  assert.deepEqual(
+    fixture.attempts.map(({ url }) => url),
+    [HARNESS_AUTHENTICATED_URL, HARNESS_AUTHENTICATED_URL],
+  );
+  t.mock.timers.tick(19);
+  fixture.finish();
+  assert.equal(await outcome, HARNESS_ORIGIN);
+  assert.equal(fixture.counts().remoteStarts, 1);
+
+  const attached = fixture.lifecycle.attach(fixture.window);
+  assert.equal(fixture.attempts.at(-1).url, HARNESS_ORIGIN);
+  fixture.finish();
+  await attached;
+  assert.equal(fixture.counts().runtimeStarts, 1);
+});
+
+test("declining navigation retry preserves the failure without reloading", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const errors = [];
+  const fixture = navigationFixture({
+    navigationTimeoutMs: 20,
+    async requestNavigationRetry(error) {
+      errors.push(error);
+      return false;
+    },
+  });
+  const outcome = fixture.lifecycle.start(fixture.window).catch(
+    (error) => error,
+  );
+  await nextNavigationTurn();
+  t.mock.timers.tick(20);
+  const error = await outcome;
+  assert.equal(errors.length, 1);
+  assert.equal(error, errors[0]);
+  assert.equal(fixture.attempts.length, 1);
+  assert.equal(fixture.counts().remoteStarts, 0);
+});
+
+test("closing the window while choosing retry cannot start another navigation", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const decision = Promise.withResolvers();
+  const fixture = navigationFixture({
+    navigationTimeoutMs: 20,
+    requestNavigationRetry: () => decision.promise,
+  });
+  const outcome = fixture.lifecycle.start(fixture.window).catch(
+    (error) => error,
+  );
+  await nextNavigationTurn();
+  t.mock.timers.tick(20);
+  await nextNavigationTurn();
+  fixture.destroy();
+  decision.resolve(true);
+  assert.equal((await outcome).name, "HarnessNavigationError");
+  assert.equal(fixture.attempts.length, 1);
+  assert.equal(fixture.counts().remoteStarts, 0);
+});
+
+test("a replaced runtime cannot be reloaded by an old retry decision", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const decision = Promise.withResolvers();
+  const fixture = navigationFixture({
+    navigationTimeoutMs: 20,
+    requestNavigationRetry: () => decision.promise,
+  });
+  const outcome = fixture.lifecycle.start(fixture.window).catch(
+    (error) => error,
+  );
+  await nextNavigationTurn();
+  t.mock.timers.tick(20);
+  await nextNavigationTurn();
+  fixture.lifecycle.clear();
+  decision.resolve(true);
+  assert.equal((await outcome).name, "HarnessNavigationError");
+  assert.equal(fixture.attempts.length, 1);
+  assert.equal(fixture.counts().remoteStarts, 0);
+});
+
+test("failed page loads offer retry without exposing the launch token", async () => {
+  const errors = [];
+  const fixture = navigationFixture({
+    async requestNavigationRetry(error) {
+      errors.push(error);
+      return true;
+    },
+  });
+  const outcome = fixture.lifecycle.start(fixture.window);
+  await nextNavigationTurn();
+  fixture.attempts[0].reject(new Error(
+    `ERR_CONNECTION_RESET ${HARNESS_AUTHENTICATED_URL}`,
+  ));
+  await nextNavigationTurn();
+  assert.equal(fixture.attempts.length, 2);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].name, "HarnessNavigationError");
+  assert.doesNotMatch(errors[0].message, new RegExp(HARNESS_LAUNCH_TOKEN, "u"));
+  assert.match(errors[0].cause.message, /ERR_CONNECTION_RESET.*token=<redacted>/u);
+  fixture.finish();
+  assert.equal(await outcome, HARNESS_ORIGIN);
+  assert.equal(fixture.counts().runtimeStarts, 1);
+});
+
+test("backend startup failures do not enter the page reload loop", async () => {
+  const failure = new Error("backend failed before readiness");
+  let retries = 0;
+  const fixture = navigationFixture({
+    runtime: { async start() { throw failure; } },
+    async requestNavigationRetry() {
+      retries += 1;
+      return true;
+    },
+  });
+  await assert.rejects(fixture.lifecycle.start(fixture.window), (error) => error === failure);
+  assert.equal(retries, 0);
+  assert.equal(fixture.attempts.length, 0);
+});
+
+test("Harness timeouts have independent environment overrides and explicit precedence", () => {
+  for (const phase of ["startup", "navigation"]) {
+    assert.equal(resolveHarnessTimeout(phase, undefined, {}), 90_000);
+    const name = `MINKE_HARNESS_${phase.toUpperCase()}_TIMEOUT_MS`;
+    const environment = { [name.toLowerCase()]: " 180000 " };
+    assert.equal(resolveHarnessTimeout(phase, undefined, environment), 180_000);
+    assert.equal(resolveHarnessTimeout(phase, 1_000, environment), 1_000);
+    assert.equal(resolveHarnessTimeout(phase, undefined, { [name]: " " }), 90_000);
+  }
+  const environment = { MINKE_HARNESS_STARTUP_TIMEOUT_MS: "120000" };
+  assert.equal(resolveHarnessTimeout("startup", undefined, environment), 120_000);
+  assert.equal(resolveHarnessTimeout("navigation", undefined, environment), 90_000);
+});
+
+test("Harness timeout overrides reject invalid and overflowing timers", () => {
+  for (const value of ["0", "-1", "1.5", "Infinity", "NaN", "120s", "1e5", "2147483648"]) {
+    assert.throws(
+      () => resolveHarnessTimeout("navigation", undefined, {
+        MINKE_HARNESS_NAVIGATION_TIMEOUT_MS: value,
+      }),
+      /MINKE_HARNESS_NAVIGATION_TIMEOUT_MS must be a whole number of milliseconds/u,
+      value,
+    );
+  }
+  for (const value of [0, -1, 1.5, NaN, Infinity, 2_147_483_648]) {
+    assert.throws(() => resolveHarnessTimeout("startup", value, {}), RangeError);
+  }
+});
+
+test("the navigation environment override reaches the actual loading timer", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const environment = process.env;
+  process.env = { ...environment, MINKE_HARNESS_NAVIGATION_TIMEOUT_MS: "180000" };
+  t.after(() => { process.env = environment; });
+  const fixture = navigationFixture();
+  const outcome = fixture.lifecycle.start(fixture.window).catch((error) => error);
+  await nextNavigationTurn();
+  t.mock.timers.tick(120_000);
+  fixture.finish();
+  assert.equal(await outcome, HARNESS_ORIGIN);
+  assert.equal(fixture.counts().stops, 0);
 });

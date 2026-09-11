@@ -70,7 +70,10 @@ import {
   buildDshChildEnvironment,
   DataHomeManager,
 } from "./data-home";
-import { HarnessLifecycle } from "./harness-lifecycle";
+import {
+  HarnessLifecycle,
+  type HarnessNavigationError,
+} from "./harness-lifecycle";
 import {
   HarnessRuntime,
   type HarnessRuntimeExit,
@@ -679,6 +682,7 @@ class DesktopApplication {
     this.#harnessLifecycle = new HarnessLifecycle({
       runtime,
       remote: remoteAccess,
+      requestNavigationRetry: (error) => this.#requestNavigationRetry(error),
     });
     await this.#startHarness();
     if (app.isPackaged) {
@@ -833,6 +837,32 @@ class DesktopApplication {
     );
   }
 
+  async #requestNavigationRetry(error: HarnessNavigationError): Promise<boolean> {
+    const window = this.#windows?.current;
+    if (this.#quitting || window === undefined || window.isDestroyed()) {
+      return false;
+    }
+    const result = await dialog.showMessageBox(window, {
+      type: "error",
+      title: this.#desktopText("runtime.navigationFailedTitle"),
+      message: this.#desktopText("runtime.navigationFailedMessage"),
+      detail: error.message,
+      buttons: [
+        this.#desktopText("runtime.retryNavigation"),
+        this.#desktopText("runtime.quit"),
+      ],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (this.#quitting) return false;
+    if (result.response === 0 && !window.isDestroyed()) return true;
+    // The user already chose to quit; do not show another startup error box.
+    this.#quitting = true;
+    app.quit();
+    return false;
+  }
+
   async #handleUnexpectedExit(
     exit: HarnessRuntimeExit,
   ): Promise<void> {
@@ -883,6 +913,7 @@ class DesktopApplication {
         app.quit();
       }
     } catch (error) {
+      if (this.#quitting) return;
       dialog.showErrorBox(
         this.#desktopText("runtime.restartFailedTitle"),
         error instanceof Error

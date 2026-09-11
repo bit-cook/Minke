@@ -1,4 +1,5 @@
 import type { HarnessRuntimeEndpoint } from "./harness-runtime.ts";
+import { resolveHarnessTimeout } from "./harness-timeout.ts";
 
 export interface HarnessLifecycleRuntime {
   start(): Promise<HarnessRuntimeEndpoint>;
@@ -28,9 +29,9 @@ export interface HarnessLifecycleOptions {
   remote?: HarnessLifecycleRemote;
   reportError?: (message: string, error: unknown) => void;
   navigationTimeoutMs?: number;
+  /** Ask whether to reload the window while keeping the ready runtime alive. */
+  requestNavigationRetry?: (error: HarnessNavigationError) => Promise<boolean>;
 }
-
-const DEFAULT_NAVIGATION_TIMEOUT_MS = 15_000;
 
 export class HarnessNavigationError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -72,6 +73,7 @@ export class HarnessLifecycle {
   readonly #remote: HarnessLifecycleRemote | undefined;
   readonly #reportError: (message: string, error: unknown) => void;
   readonly #navigationTimeoutMs: number;
+  readonly #requestNavigationRetry: HarnessLifecycleOptions["requestNavigationRetry"];
   #url: string | undefined;
   #authenticatedUrl: string | undefined;
   #launchToken: string | undefined;
@@ -82,17 +84,11 @@ export class HarnessLifecycle {
     this.#reportError =
       options.reportError ??
       ((message, error) => console.error(message, error));
-    this.#navigationTimeoutMs =
-      options.navigationTimeoutMs ??
-      DEFAULT_NAVIGATION_TIMEOUT_MS;
-    if (
-      !Number.isSafeInteger(this.#navigationTimeoutMs) ||
-      this.#navigationTimeoutMs <= 0
-    ) {
-      throw new RangeError(
-        "Harness navigation timeout must be a positive integer",
-      );
-    }
+    this.#navigationTimeoutMs = resolveHarnessTimeout(
+      "navigation",
+      options.navigationTimeoutMs,
+    );
+    this.#requestNavigationRetry = options.requestNavigationRetry;
   }
 
   get url(): string | undefined {
@@ -176,6 +172,37 @@ export class HarnessLifecycle {
   }
 
   async #loadWindow(
+    window: HarnessLifecycleWindow,
+    navigationUrl: string,
+    origin: string,
+    launchToken: string | undefined,
+  ): Promise<void> {
+    for (;;) {
+      try {
+        await this.#loadWindowAttempt(
+          window,
+          navigationUrl,
+          origin,
+          launchToken,
+        );
+        return;
+      } catch (error) {
+        if (
+          !(error instanceof HarnessNavigationError) ||
+          this.#requestNavigationRetry === undefined ||
+          !isUsableWindow(window) ||
+          this.#url !== origin ||
+          !(await this.#requestNavigationRetry(error)) ||
+          !isUsableWindow(window) ||
+          this.#url !== origin
+        ) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  async #loadWindowAttempt(
     window: HarnessLifecycleWindow,
     navigationUrl: string,
     origin: string,

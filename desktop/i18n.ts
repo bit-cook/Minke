@@ -14,6 +14,10 @@ const zh = {
   "runtime.quit": "退出 Minke",
   "runtime.restartFailedTitle": "无法重新启动 DeepSeek Harness",
   "runtime.startupFailedTitle": "Minke 启动失败",
+  "runtime.navigationFailedTitle": "无法加载 Minke 界面",
+  "runtime.navigationFailedMessage":
+    "页面加载未完成。可以重试加载，或退出 Minke。",
+  "runtime.retryNavigation": "重新加载",
   "menu.file": "文件",
   "menu.view": "视图",
   "menu.commandPalette": "命令面板…",
@@ -81,6 +85,10 @@ const en: Record<DesktopMessageKey, string> = {
   "runtime.restartFailedTitle":
     "Unable to restart DeepSeek Harness",
   "runtime.startupFailedTitle": "Minke failed to start",
+  "runtime.navigationFailedTitle": "Unable to load Minke",
+  "runtime.navigationFailedMessage":
+    "The page did not finish loading. You can try loading it again or quit Minke.",
+  "runtime.retryNavigation": "Reload",
   "menu.file": "File",
   "menu.view": "View",
   "menu.commandPalette": "Command Palette…",

@@ -43,13 +43,13 @@ import type {
   AgentBrowserBinding,
   AgentBrowserRuntime,
 } from "./agent-browser";
+import { resolveHarnessTimeout } from "./harness-timeout.ts";
 
 const READY_PATTERN =
   /dsh web:\s+(http:\/\/[^\s)]+)(?=\s|\))/u;
 const LAUNCH_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const TOKEN_QUERY_VALUE_PATTERN = /([?&]token=)[^&\s)]*/giu;
 const MAX_CAPTURED_OUTPUT = 64 * 1024;
-const DEFAULT_STARTUP_TIMEOUT_MS = 90_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 export interface HarnessRuntimeEndpoint {
@@ -192,6 +192,7 @@ export function harnessRuntimeEnvironment(
  */
 export class HarnessRuntime {
   readonly #options: HarnessRuntimeOptions;
+  readonly #startupTimeoutMs: number;
   #modelRuntimes: LocalModelRuntimeLaunchOptions;
   #stagedModelRuntimes:
     | LocalModelRuntimeLaunchOptions
@@ -208,6 +209,10 @@ export class HarnessRuntime {
 
   constructor(options: HarnessRuntimeOptions) {
     this.#options = options;
+    this.#startupTimeoutMs = resolveHarnessTimeout(
+      "startup",
+      options.startupTimeoutMs,
+    );
     this.#modelRuntimes = copyModelRuntimes(
       options.modelRuntimes,
     );
@@ -405,8 +410,7 @@ export class HarnessRuntime {
   async #waitUntilReady(
     child: ChildProcess,
   ): Promise<HarnessRuntimeEndpoint> {
-    const timeoutMs =
-      this.#options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
+    const timeoutMs = this.#startupTimeoutMs;
 
     return await new Promise<HarnessRuntimeEndpoint>(
       (resolvePromise, reject) => {
