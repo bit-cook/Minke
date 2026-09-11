@@ -12,6 +12,7 @@ import type {
   WebPreferences,
 } from "electron";
 import { randomUUID } from "node:crypto";
+import { normalizeWebFaviconUrl } from "@minke/harness-overlay/tabs/contract.ts";
 import {
   AGENT_BROWSER_CLOSE_CHANNEL,
   AGENT_BROWSER_CONTROL_CHANNEL,
@@ -151,6 +152,7 @@ interface AgentBrowserSessionState {
   generation: number;
   url?: string;
   title?: string;
+  faviconUrl?: string;
   error?: string;
   attachmentClaimed: boolean;
   guest?: WebContents;
@@ -2162,6 +2164,7 @@ export class AgentBrowserRuntime {
     ): void => {
       if (!isSafeGuestUrl(navigatedUrl)) return;
       this.#clearCursor(state);
+      delete state.faviconUrl;
       if (navigatedUrl !== INITIAL_GUEST_URL) {
         state.url = normalizeAgentBrowserUrl(navigatedUrl);
         this.#recordHistoryVisit(
@@ -2214,7 +2217,7 @@ export class AgentBrowserRuntime {
     ): void => {
       const visitId = state.historyVisitId;
       const pageUrl = state.url;
-      if (visitId === undefined || pageUrl === undefined) return;
+      if (pageUrl === undefined) return;
       let currentUrl: string;
       try {
         currentUrl = normalizeAgentBrowserUrl(guest.getURL());
@@ -2224,17 +2227,26 @@ export class AgentBrowserRuntime {
       if (currentUrl !== pageUrl) return;
       const faviconUrl = favicons
         .map((candidate) =>
-          normalizeAgentBrowserHistoryFaviconUrl(
-            candidate,
-            pageUrl,
-          ))
+          normalizeWebFaviconUrl(candidate, pageUrl))
         .find((candidate) => candidate !== undefined);
-      if (faviconUrl === undefined) return;
-      this.#writeHistoryVisitFavicon(
-        visitId,
-        pageUrl,
+      if (faviconUrl === undefined) {
+        if (favicons.length === 0 && state.faviconUrl !== undefined) {
+          delete state.faviconUrl;
+          this.#publish();
+        }
+        return;
+      }
+      if (state.faviconUrl !== faviconUrl) {
+        state.faviconUrl = faviconUrl;
+        this.#publish();
+      }
+      const historyFaviconUrl = normalizeAgentBrowserHistoryFaviconUrl(
         faviconUrl,
+        pageUrl,
       );
+      if (visitId !== undefined && historyFaviconUrl !== undefined) {
+        this.#writeHistoryVisitFavicon(visitId, pageUrl, historyFaviconUrl);
+      }
     };
     const handleDidStartNavigation = (
       details: ElectronEvent<
@@ -2807,6 +2819,7 @@ export class AgentBrowserRuntime {
       navigation: state.navigation,
       ...(state.url === undefined ? {} : { url: state.url }),
       ...(state.title === undefined ? {} : { title: state.title }),
+      ...(state.faviconUrl === undefined ? {} : { faviconUrl: state.faviconUrl }),
       ...(state.error === undefined ? {} : { error: state.error }),
       ...(state.cursor === undefined
         ? {}

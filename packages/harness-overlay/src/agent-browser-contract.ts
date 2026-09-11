@@ -1,4 +1,6 @@
 /** Private Harness ↔ Electron protocol and renderer projection for Agent Tabs. */
+import { normalizeWebFaviconUrl } from "./tabs/contract.ts";
+
 export const AGENT_BROWSER_PROCESS_CHANNEL =
   "minke:agent-browser:process";
 export const AGENT_BROWSER_PROTOCOL_VERSION = 1;
@@ -115,6 +117,7 @@ export interface AgentBrowserProjection {
   readonly navigation?: AgentBrowserNavigationState;
   readonly url?: string;
   readonly title?: string;
+  readonly faviconUrl?: string;
   readonly error?: string;
   readonly cursor?: AgentBrowserCursorProjection;
 }
@@ -1424,7 +1427,7 @@ export function parseAgentBrowserProjection(
         "owner",
         "status",
       ],
-      ["url", "title", "error", "cursor", "navigation"],
+      ["url", "title", "faviconUrl", "error", "cursor", "navigation"],
     )
   ) {
     throw new TypeError("invalid Agent Browser projection");
@@ -1448,6 +1451,17 @@ export function parseAgentBrowserProjection(
     "Agent Browser title",
     160,
   );
+  const faviconCandidate = optionalBoundedString(
+    projection.faviconUrl,
+    "Agent Browser favicon URL",
+    8_192,
+  );
+  const faviconUrl = faviconCandidate === undefined || url === undefined
+    ? undefined
+    : normalizeWebFaviconUrl(faviconCandidate, url);
+  if (faviconCandidate !== undefined && faviconUrl === undefined) {
+    throw new TypeError("invalid Agent Browser favicon URL");
+  }
   const error = optionalBoundedString(
     projection.error,
     "Agent Browser error",
@@ -1471,6 +1485,7 @@ export function parseAgentBrowserProjection(
     ...(navigation === undefined ? {} : { navigation }),
     ...(url === undefined ? {} : { url }),
     ...(title === undefined ? {} : { title }),
+    ...(faviconUrl === undefined ? {} : { faviconUrl }),
     ...(error === undefined ? {} : { error }),
     ...(cursor === undefined ? {} : { cursor }),
   };

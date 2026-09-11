@@ -23,8 +23,8 @@ import {
   ForwardIcon,
   ReloadIcon,
   StopIcon,
-  WebIcon,
 } from "@minke/harness-overlay/client/tabs/web/icons.tsx";
+import { WebTabIcon } from "../web/WebTabIcon.tsx";
 import {
   BrowserAnnotateIcon,
   BrowserControlIcon,
@@ -159,7 +159,10 @@ function controlSignal(tab: ManagedTab): ReactNode {
       }
       aria-hidden="true"
     >
-      <WebIcon size={12} />
+      <WebTabIcon
+        faviconUrl={tab.payload.faviconUrl}
+        loading={tab.payload.navigation?.loading}
+      />
     </span>
   );
 }

@@ -595,6 +595,24 @@ test("automatic control claims are correlated and revision guarded", () => {
   );
 });
 
+test("Agent Browser projections preserve bounded web favicons", () => {
+  const projection = {
+    sessionId: "browser-1",
+    partition: "minke-agent-icons",
+    generation: 1,
+    owner: "agent",
+    status: "ready",
+    url: "https://example.com/",
+  };
+  const faviconUrl = "https://cdn.example.com/site.png";
+  assert.equal(parseAgentBrowserProjection({ ...projection, faviconUrl }).faviconUrl, faviconUrl);
+  assert.equal(parseAgentBrowserProjection(projection).faviconUrl, undefined);
+  for (const invalid of ["file:///tmp/private.png", "javascript:alert(1)", "data:image/png;base64,eA==", "https://example.com/" + "x".repeat(8192), 42]) {
+    assert.throws(() => parseAgentBrowserProjection({ ...projection, faviconUrl: invalid }), /favicon/iu);
+  }
+  assert.throws(() => parseAgentBrowserProjection({ ...projection, url: undefined, faviconUrl }), /favicon/iu);
+});
+
 test("Agent Browser renderer projections reject persistent identity", () => {
   const projection = parseAgentBrowserProjection({
     sessionId: "browser-1",

@@ -4796,9 +4796,9 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
     ),
     "utf8",
   );
-  const webRendererSource = readFileSync(
+  const webIconSource = readFileSync(
     new URL(
-      "../packages/harness-overlay/src/client/tabs/web/renderer.tsx",
+      "../packages/harness-overlay/src/client/tabs/web/WebTabIcon.tsx",
       import.meta.url,
     ),
     "utf8",
@@ -4848,11 +4848,11 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
     /\[controller,\s*tab\.id,\s*tab\.payload\.url\]/u,
   );
   assert.match(
-    webRendererSource,
+    webIconSource,
     /className="minke-tab__favicon-preload"/u,
   );
   assert.match(
-    webRendererSource,
+    webIconSource,
     /data-loading=\{busy \|\| undefined\}/u,
   );
   assert.match(

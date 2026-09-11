@@ -3869,6 +3869,41 @@ test("scroll reports observable page or container movement and invalidates refs 
   target.runtime.dispose();
 });
 
+test("Agent Browser projects live favicons without requiring browsing history", async () => {
+  const target = runtimeFixture();
+  const opened = await openAgentBrowser(target);
+  try {
+    const pageUrl = "https://example.com/docs";
+    const faviconUrl = "https://cdn.example.com/site.png";
+    opened.guest.url = pageUrl;
+    opened.guest.emit("did-navigate", {}, pageUrl);
+    opened.guest.emit("page-favicon-updated", {}, [faviconUrl]);
+    assert.equal(target.runtime.projections()[0].faviconUrl, faviconUrl);
+    assert.equal(target.embedder.messages.at(-1).value[0].faviconUrl, faviconUrl);
+
+    opened.guest.url = `${pageUrl}#section`;
+    opened.guest.emit("did-navigate-in-page", {}, opened.guest.url, true);
+    assert.equal(target.runtime.projections()[0].faviconUrl, faviconUrl);
+    opened.guest.emit("page-favicon-updated", {}, ["file:///tmp/private.png"]);
+    assert.equal(target.runtime.projections()[0].faviconUrl, faviconUrl);
+
+    opened.guest.url = "https://other.example.com/";
+    opened.guest.emit("page-favicon-updated", {}, ["https://other.example.com/icon.png"]);
+    assert.equal(target.runtime.projections()[0].faviconUrl, faviconUrl,
+      "favicon events for an uncommitted page cannot replace the current icon");
+    opened.guest.emit("did-navigate", {}, opened.guest.url);
+    assert.equal(target.runtime.projections()[0].faviconUrl, undefined,
+      "a new document cannot inherit the previous site's icon");
+    opened.guest.emit("page-favicon-updated", {}, ["https://other.example.com/icon.png"]);
+    opened.guest.emit("page-favicon-updated", {}, []);
+    assert.equal(target.runtime.projections()[0].faviconUrl, undefined);
+  } finally {
+    await target.runtime.closeOwner("conversation-1");
+    target.binding.dispose();
+    target.runtime.dispose();
+  }
+});
+
 test("committed visits retain the owner captured when navigation started", async () => {
   const visits = [];
   let closed = false;

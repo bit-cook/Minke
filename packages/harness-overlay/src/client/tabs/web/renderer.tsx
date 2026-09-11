@@ -1,6 +1,4 @@
 import {
-  useEffect,
-  useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -31,6 +29,7 @@ import {
   StopIcon,
   WebIcon,
 } from "./icons.tsx";
+import { WebTabIcon } from "./WebTabIcon.tsx";
 import {
   renderWebTabView,
 } from "./WebTabView.tsx";
@@ -52,76 +51,6 @@ function siteLabel(tab: ManagedTab): string | undefined {
   } catch {
     return tab.payload.url;
   }
-}
-
-function WebTabIcon(props: { tab: ManagedTab }): ReactNode {
-  const webTab = isWebTab(props.tab) ? props.tab : undefined;
-  const faviconUrl = webTab?.payload.faviconUrl;
-  const loading = webTab?.payload.loading ?? false;
-  const [displayedUrl, setDisplayedUrl] = useState<string>();
-  const [failedUrl, setFailedUrl] = useState<string>();
-
-  useEffect(() => {
-    if (faviconUrl === undefined) {
-      setFailedUrl(undefined);
-      if (!loading) setDisplayedUrl(undefined);
-      return;
-    }
-    if (!loading && faviconUrl === failedUrl) {
-      setDisplayedUrl(undefined);
-    }
-  }, [failedUrl, faviconUrl, loading]);
-
-  const pendingUrl =
-    faviconUrl !== undefined &&
-    faviconUrl !== displayedUrl &&
-    faviconUrl !== failedUrl
-      ? faviconUrl
-      : undefined;
-  const busy = loading || pendingUrl !== undefined;
-
-  return (
-    <span
-      className="minke-tab__favicon-shell"
-      data-loading={busy || undefined}
-      aria-hidden="true"
-    >
-      {displayedUrl === undefined
-        ? (
-          <span className="minke-tab__favicon-fallback">
-            <WebIcon size={12} />
-          </span>
-        )
-        : (
-          <img
-            key={displayedUrl}
-            className="minke-tab__favicon"
-            src={displayedUrl}
-            alt=""
-            draggable={false}
-            referrerPolicy="no-referrer"
-            onError={() => {
-              setFailedUrl(displayedUrl);
-              setDisplayedUrl(undefined);
-            }}
-          />
-        )}
-      {pendingUrl !== undefined && (
-        <img
-          className="minke-tab__favicon-preload"
-          src={pendingUrl}
-          alt=""
-          draggable={false}
-          referrerPolicy="no-referrer"
-          onLoad={() => {
-            setDisplayedUrl(pendingUrl);
-            setFailedUrl(undefined);
-          }}
-          onError={() => setFailedUrl(pendingUrl)}
-        />
-      )}
-    </span>
-  );
 }
 
 function leadingActions(
@@ -267,7 +196,12 @@ export function createWebTabRenderer(
         create: createBlank,
       },
     ],
-    renderIcon: (tab) => <WebTabIcon tab={tab} />,
+    renderIcon: (tab) => (
+      <WebTabIcon
+        faviconUrl={isWebTab(tab) ? tab.payload.faviconUrl : undefined}
+        loading={isWebTab(tab) && tab.payload.loading}
+      />
+    ),
     renderLeadingActions: (tab) =>
       leadingActions(tab, t, controller),
     renderTrailingActions: (tab) => (

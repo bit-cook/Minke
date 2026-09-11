@@ -1104,6 +1104,7 @@ test("Agent Browser renderer shields agent input and exposes takeover", () => {
     payload: {
       ...projection("session-1", {
         cursor: agentCursor(),
+        faviconUrl: "https://cdn.example.com/site.png",
       }),
       controlPending: false,
     },
@@ -1122,6 +1123,8 @@ test("Agent Browser renderer shields agent input and exposes takeover", () => {
   assert.match(agentIconMarkup, /data-owner="agent"/u);
   assert.match(agentIconMarkup, /data-status="ready"/u);
   assert.match(agentIconMarkup, /aria-hidden="true"/u);
+  assert.match(agentIconMarkup, /class="minke-tab__favicon-preload"/u);
+  assert.match(agentIconMarkup, /src="https:\/\/cdn\.example\.com\/site\.png"/u);
   const actionMarkup = renderToStaticMarkup(
     renderer.renderTrailingActions(agentTab),
   );
@@ -1418,10 +1421,14 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
   );
   const contract = inspectCssContract(source);
 
-  assert.match(
-    source,
-    /\.minke-tab:has\([\s\S]*data-agent-active[\s\S]*\)::after/u,
-  );
+  for (const host of [".minke-tab", "[data-dockkit-tab]"]) {
+    const selector = `${host}:has( .minke-agent-browser__tab-signal[data-agent-active] )`;
+    assert.match(contract.declaration(selector, "background-image"), /repeating-linear-gradient/u);
+    assert.equal(contract.declaration(selector, "border-radius"), undefined,
+      "the tab container owns the Agent highlight's rounded shape");
+    assert.equal(contract.hasSelector(`${selector}::after`), false,
+      "Agent highlighting must not overlay a second tab silhouette");
+  }
   assert.doesNotMatch(
     source,
     /\.minke-agent-browser__view\[data-agent-active\]::before/u,

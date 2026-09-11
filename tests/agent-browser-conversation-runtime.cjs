@@ -123,14 +123,24 @@ async function closeServer(server) {
 }
 
 async function startBrowserFixture() {
-  const server = http.createServer((_request, response) => {
+  const server = http.createServer((request, response) => {
+    if (request.url === '/missing-icon.png') {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    if (request.url === '/site-icon.svg') {
+      response.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' });
+      response.end('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" rx="3" fill="#3964fe"/><path d="M4 12V4l4 5 4-5v8" fill="none" stroke="white" stroke-width="2"/></svg>');
+      return;
+    }
     response.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
     });
     response.end(`<!doctype html>
       <html>
-        <head><title>Minke Agent Browser E2E</title></head>
+        <head><title>Minke Agent Browser E2E</title><link rel="icon" href="/site-icon.svg" /></head>
         <body>
           <p id="state">Ready</p>
           <label>
@@ -1205,10 +1215,19 @@ async function run() {
             "(prefers-reduced-motion: reduce)"
           ).matches,
           tabAnimation:
-            getComputedStyle(tab, "::after").animationName,
+            getComputedStyle(tab).animationName,
+          tabRadius: getComputedStyle(tab).borderRadius,
+          tabCornerShape: getComputedStyle(tab).getPropertyValue('corner-shape'),
+          tabShadow: getComputedStyle(tab).boxShadow,
+          tabBackground: getComputedStyle(tab).backgroundImage,
+          highlightContent: getComputedStyle(tab, '::after').content,
         };
       }`,
     );
+    assert.equal(agentControlStyling.tabRadius, '12px');
+    assert.equal(agentControlStyling.tabShadow, 'none');
+    assert.equal(agentControlStyling.highlightContent, 'none');
+    assert.match(agentControlStyling.tabBackground, /repeating-linear-gradient/);
     assert.equal(
       agentControlStyling.tabAnimation,
       agentControlStyling.prefersReducedMotion
@@ -1223,6 +1242,20 @@ async function run() {
     assert.match(agentControlStyling.frameShadow, /\binset\b/u);
     assert.equal(agentControlStyling.guestPointerEvents, 'none');
     const agentLayout = await readAgentBrowserLayout(window);
+
+    const iconLoaded = () => rendererValue(window, `() => {
+      const icon = document.querySelector('.minke-agent-browser__tab-signal img.minke-tab__favicon');
+      return icon?.complete && icon.naturalWidth > 0 && icon.src === ${JSON.stringify(new URL('/site-icon.svg', fixture.url).href)};
+    }`);
+    await waitFor(iconLoaded, 'the Agent tab website favicon');
+    await guest.executeJavaScript(`document.querySelector('link[rel="icon"]').href = '/missing-icon.png'; true;`);
+    await waitFor(() => rendererValue(window, `() =>
+      document.querySelector('.minke-agent-browser__tab-signal .minke-tab__favicon-fallback') !== null &&
+      document.querySelector('.minke-agent-browser__tab-signal img') === null
+    `), 'a failed favicon to fall back to the browser icon');
+    await guest.executeJavaScript(`document.querySelector('link[rel="icon"]').href = '/site-icon.svg'; true;`);
+    await waitFor(iconLoaded, 'a replacement favicon to recover after failure');
+    trace('Agent tab favicon loading, failure fallback and recovery verified');
 
     const screenshotPath = process.env[SCREENSHOT_ENV];
     if (screenshotPath !== undefined) {
@@ -1259,6 +1292,11 @@ async function run() {
       trace(
         `focused agent-control screenshot captured at ${focusedScreenshotPath}`,
       );
+      const wasDark = await rendererValue(window, `() => document.body.hasAttribute('data-ds-dark-theme')`);
+      await rendererValue(window, `() => { document.body.toggleAttribute('data-ds-dark-theme', !${wasDark}); return true; }`);
+      await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+      await writeFile(`${resolve(focusedScreenshotPath)}.alternate-theme.png`, (await window.capturePage(panelBounds)).toPNG());
+      await rendererValue(window, `() => { document.body.toggleAttribute('data-ds-dark-theme', ${wasDark}); return true; }`);
     }
 
     await rendererValue(

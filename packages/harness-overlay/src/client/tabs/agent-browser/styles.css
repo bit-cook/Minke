@@ -9,43 +9,15 @@
   place-items: center;
 }
 
+/* Paint the control signal on the chip itself so DockKit owns its silhouette. */
 .minke-tab:has(
   .minke-agent-browser__tab-signal[data-agent-active]
 ),
 [data-dockkit-tab]:has(
   .minke-agent-browser__tab-signal[data-agent-active]
 ) {
-  isolation: isolate;
-  border-color: color-mix(
-    in srgb,
-    var(--dsw-alias-brand-primary) 48%,
-    transparent
-  );
-  box-shadow:
-    0 0 0 1px color-mix(
-      in srgb,
-      var(--dsw-alias-brand-primary) 12%,
-      transparent
-    ),
-    0 5px 18px color-mix(
-      in srgb,
-      var(--dsw-alias-brand-primary) 14%,
-      transparent
-    );
-}
-
-.minke-tab:has(
-  .minke-agent-browser__tab-signal[data-agent-active]
-)::after,
-[data-dockkit-tab]:has(
-  .minke-agent-browser__tab-signal[data-agent-active]
-)::after {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
   animation: minke-agent-browser-tab-flow 7.2s linear infinite;
-  background:
+  background-image:
     repeating-linear-gradient(
       112deg,
       color-mix(
@@ -80,18 +52,6 @@
       ) 50%
     );
   background-size: 200% 100%;
-  content: "";
-  pointer-events: none;
-}
-
-.minke-tab:has(
-  .minke-agent-browser__tab-signal[data-agent-active]
-) > .minke-tab__target,
-.minke-tab:has(
-  .minke-agent-browser__tab-signal[data-agent-active]
-) > .minke-tab__close {
-  position: relative;
-  z-index: 1;
 }
 
 .minke-agent-browser__guest {
@@ -1078,10 +1038,10 @@
 @media (prefers-reduced-motion: reduce) {
   .minke-tab:has(
     .minke-agent-browser__tab-signal[data-agent-active]
-  )::after,
-[data-dockkit-tab]:has(
+  ),
+  [data-dockkit-tab]:has(
     .minke-agent-browser__tab-signal[data-agent-active]
-  )::after {
+  ) {
     animation: none;
     background-position: 50% 50%;
   }
@@ -1102,15 +1062,8 @@
   }
 }
 
-[data-dockkit-tab]:has(.minke-agent-browser__tab-signal[data-agent-active]) > [data-dockkit-tab-title] {
-  position: relative;
-  z-index: 1;
-}
-[data-dockkit-tab]:has(.minke-agent-browser__tab-signal[data-agent-active]) > [data-dockkit-tab-close] {
-  z-index: 1;
-}
 .minke-tabs-native-title > .minke-agent-browser__tab-signal {
-  width: 13px;
-  height: 13px;
+  width: 18px;
+  height: 18px;
   flex: none;
 }
