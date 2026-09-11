@@ -1018,6 +1018,7 @@ export function BrowserHistoryView({
                   }}
                 >
                   <LucideIcon icon={filter.icon} size={13} />
+                  <span>{t(filter.label)}</span>
                 </button>
               ))}
             </div>
@@ -1213,6 +1214,7 @@ export function BrowserHistoryView({
                     webHistoryDisplayAddress(visit.url);
                   const visitedAt =
                     formatLocalDateTime(visit.visitedAt);
+                  const [visitDate, visitTime] = visitedAt.split(" ");
                   const deleting =
                     deletingVisitId === visit.visitId;
                   const deleteFailed =
@@ -1294,13 +1296,23 @@ export function BrowserHistoryView({
                             "minke-browser-history__visit-body"
                           }
                         >
-                          <strong
-                            className={
-                              "minke-browser-history__visit-primary"
-                            }
-                          >
-                            {primary}
-                          </strong>
+                          <span className="minke-browser-history__visit-heading">
+                            <strong
+                              className={
+                                "minke-browser-history__visit-primary"
+                              }
+                            >
+                              {primary}
+                            </strong>
+                            <time
+                              className="minke-browser-history__visit-time"
+                              dateTime={new Date(visit.visitedAt).toISOString()}
+                              aria-label={visitedAt}
+                              title={visitedAt}
+                            >
+                              {visitTime?.slice(0, 5)}
+                            </time>
+                          </span>
                           <span
                             className={
                               "minke-browser-history__visit-details"
@@ -1341,24 +1353,6 @@ export function BrowserHistoryView({
                             </span>
                             <span
                               className={
-                                "minke-browser-history__separator "
-                                + "minke-browser-history__separator--time"
-                              }
-                              aria-hidden="true"
-                            >
-                              ·
-                            </span>
-                            <time
-                              dateTime={
-                                new Date(
-                                  visit.visitedAt,
-                                ).toISOString()
-                              }
-                            >
-                              {visitedAt}
-                            </time>
-                            <span
-                              className={
                                 "minke-browser-history__separator"
                                 + " minke-browser-history__separator--count"
                               }
@@ -1375,6 +1369,12 @@ export function BrowserHistoryView({
                                 visit.pathVisitCount,
                                 t,
                               )}
+                            </span>
+                            <span
+                              className="minke-browser-history__visit-date"
+                              aria-hidden="true"
+                            >
+                              {visitDate}
                             </span>
                           </span>
                         </span>

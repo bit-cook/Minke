@@ -1,5 +1,5 @@
 .minke-browser-history {
-  --minke-browser-history-gutter: clamp(16px, 3vw, 28px);
+  --minke-browser-history-gutter: 16px;
   --minke-browser-history-row-height: 56px;
 
   min-width: 0;
@@ -46,7 +46,8 @@
 }
 
 .minke-browser-history__clear {
-  width: 36px;
+  width: 32px;
+  height: 32px;
   flex: none;
   padding: 0;
 }
@@ -62,17 +63,17 @@
   grid-template-columns: minmax(220px, 1fr) auto;
   flex: none;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding:
-    20px
+    16px
     var(--minke-browser-history-gutter)
-    14px;
+    8px;
 }
 
 .minke-browser-history__search-control {
   display: flex;
   min-width: 0;
-  height: 36px;
+  height: 34px;
   align-items: center;
   gap: 7px;
   padding: 0 5px 0 10px;
@@ -163,28 +164,30 @@
   grid-column: 1 / -1;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .minke-browser-history__filters {
   display: inline-flex;
-  height: 34px;
+  height: 30px;
   flex: none;
   align-items: center;
   gap: 1px;
   padding: 2px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 9px;
+  border: 0;
+  border-radius: 8px;
   box-sizing: border-box;
   background: var(--dsw-alias-button-floating-fill);
 }
 
 .minke-browser-history__filters button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  padding: 0;
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -207,23 +210,13 @@
 }
 
 .minke-browser-history__filters button[aria-pressed="true"] {
-  background:
-    color-mix(
-      in srgb,
-      var(--dsw-alias-state-business-primary) 14%,
-      var(--dsw-alias-bg-base)
-    );
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
-  box-shadow: inset 0 0 0 1px
-    color-mix(
-      in srgb,
-      var(--dsw-alias-state-business-primary) 30%,
-      transparent
-    );
 }
 
 .minke-browser-history__result-count {
   min-width: max-content;
+  margin-left: auto;
   color: var(--dsw-alias-label-tertiary);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -342,9 +335,9 @@
   flex: 1;
   flex-direction: column;
   padding:
-    10px
+    4px
     var(--minke-browser-history-gutter)
-    24px;
+    16px;
   overflow: auto;
   box-sizing: border-box;
   overscroll-behavior: contain;
@@ -406,7 +399,8 @@
   grid-template-columns: 28px minmax(0, 1fr) 18px;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 8px;
+  border-radius: 8px;
   border: 0;
   box-sizing: border-box;
   background: transparent;
@@ -437,11 +431,22 @@
   object-fit: contain;
 }
 
+.minke-browser-history__visit-kind:has(img) {
+  background: var(--dsw-static-neutral-100);
+}
+
 .minke-browser-history__visit-body {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
+}
+
+.minke-browser-history__visit-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .minke-browser-history__visit-primary,
@@ -453,17 +458,16 @@
 }
 
 .minke-browser-history__visit-primary {
+  flex: 1;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+  font-weight: 500;
   line-height: 18px;
 }
 
 .minke-browser-history__visit-url {
   color: var(--dsw-alias-label-tertiary);
-  font-family: var(--ds-font-family-code);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -479,13 +483,23 @@
   white-space: nowrap;
 }
 
-.minke-browser-history__visit-details time {
+.minke-browser-history__visit-time,
+.minke-browser-history__visit-date {
   flex: none;
-  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.minke-browser-history__visit-date {
+  margin-left: auto;
+  padding-left: 4px;
 }
 
 .minke-browser-history__visit-url {
-  flex: 1;
+  flex: 0 1 auto;
 }
 
 .minke-browser-history__actor {
@@ -795,8 +809,8 @@
 
 .minke-tabs-panel[data-placement="right"]
   .minke-browser-history__results {
-  padding-top: 8px;
-  padding-bottom: 18px;
+  padding-top: 4px;
+  padding-bottom: 16px;
 }
 
 .minke-tabs-panel[data-placement="bottom"]
@@ -815,7 +829,7 @@
   .minke-browser-history__controls {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
-    padding-bottom: 12px;
+    padding-bottom: 8px;
   }
 
   .minke-browser-history__filter-bar {
@@ -845,15 +859,15 @@
   }
 
   .minke-browser-history__filters button {
-    width: 27px;
+    padding: 0 6px;
   }
 
   .minke-browser-history__result-count {
-    font-size: 9px;
+    font-size: 10px;
   }
 
   .minke-browser-history__visit {
-    grid-template-columns: 26px minmax(0, 1fr) 28px;
+    grid-template-columns: 26px minmax(0, 1fr) 18px;
     gap: 8px;
     padding-right: 8px;
     padding-left: 8px;

@@ -402,7 +402,7 @@ test("Browser History searches content, filters actors, and opens a result", asy
         assert.ok(
           filterButtons.every(
             (button) =>
-              button.textContent === "" &&
+              button.textContent === button.getAttribute("aria-label") &&
               button.querySelector("svg") !== null,
           ),
         );
@@ -470,8 +470,17 @@ test("Browser History searches content, filters actors, and opens a result", asy
         for (const time of container.querySelectorAll("time")) {
           assert.match(
             time.textContent ?? "",
+            /^\d{2}:\d{2}$/u,
+          );
+          assert.match(
+            time.getAttribute("aria-label") ?? "",
             /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u,
           );
+          assert.equal(time.title, time.getAttribute("aria-label"));
+          assert.ok(Number.isFinite(Date.parse(time.dateTime)));
+          const date = time.closest(".minke-browser-history__visit-body")
+            ?.querySelector(".minke-browser-history__visit-date");
+          assert.equal(date?.textContent, time.title.slice(0, 10));
         }
         const actorIcons = [
           ...container.querySelectorAll(
