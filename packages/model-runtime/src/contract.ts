@@ -3,6 +3,8 @@ export const MODEL_RUNTIME_SETTINGS_READ_CHANNEL =
   "minke:model-runtime-settings:read";
 export const MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL =
   "minke:model-runtime-settings:write";
+export const MODEL_RUNTIME_STATUS_READ_CHANNEL =
+  "minke:model-runtime-status:read";
 export const MINKE_MODEL_RUNTIME_CONTROL_CHANNEL =
   "minke:model-runtime-control";
 export const MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION = 1;
@@ -50,6 +52,15 @@ export type ModelRuntimeAvailability = Record<
   LocalModelRuntimeId,
   boolean
 >;
+
+export type ModelRuntimeServiceState = "running" | "stopped" | "unknown";
+
+export function parseModelRuntimeServiceState(value: unknown): ModelRuntimeServiceState {
+  if (value !== "running" && value !== "stopped" && value !== "unknown") {
+    throw new TypeError("invalid model runtime service state");
+  }
+  return value;
+}
 
 export type ModelRuntimeSettingsReadError = "read";
 

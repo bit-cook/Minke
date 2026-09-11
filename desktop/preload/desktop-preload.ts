@@ -21,8 +21,10 @@ import {
 import {
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
   MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
+  MODEL_RUNTIME_STATUS_READ_CHANNEL,
   parseLocalModelRuntimeId,
   parseModelRuntimeSettings,
+  parseModelRuntimeServiceState,
   type LocalModelRuntimeId,
   type ModelRuntimeSettings,
 } from "@lencx/minke-model-runtime/contract";
@@ -728,6 +730,12 @@ const modelRuntime = Object.freeze({
     return await ipcRenderer.invoke(
       MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
     );
+  },
+  async readStatus(runtimeId: LocalModelRuntimeId) {
+    return parseModelRuntimeServiceState(await ipcRenderer.invoke(
+      MODEL_RUNTIME_STATUS_READ_CHANNEL,
+      parseLocalModelRuntimeId(runtimeId),
+    ));
   },
   async write(
     settings: ModelRuntimeSettings,

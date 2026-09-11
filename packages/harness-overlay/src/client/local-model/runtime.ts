@@ -1,10 +1,13 @@
 import {
   DEFAULT_MODEL_RUNTIME_SETTINGS,
   NO_MODEL_RUNTIME_AVAILABILITY,
+  LOCAL_MODEL_RUNTIME_IDS,
   parseModelRuntimeSettingsSnapshot,
+  parseModelRuntimeServiceState,
   type LocalModelRuntimeId,
   type ModelRuntimeAvailability,
   type ModelRuntimeSettings,
+  type ModelRuntimeServiceState,
 } from "@lencx/minke-model-runtime/contract";
 import type {
   ModelRuntimeSettingsStore,
@@ -35,6 +38,7 @@ export interface LocalModelSettingsSnapshot {
   settings: Readonly<ModelRuntimeSettings>;
   editable: boolean;
   status: LocalModelSaveStatuses;
+  services: Readonly<Record<LocalModelRuntimeId, ModelRuntimeServiceState | "checking">>;
   error: LocalModelSettingsErrorKind | undefined;
   revision: number;
 }
@@ -60,6 +64,7 @@ export class LocalModelSettingsRuntime {
     )),
     editable: false,
     status: idleStatuses(),
+    services: Object.freeze({ lmStudio: "checking", ollama: "checking" }),
     error: undefined,
     revision: 0,
   });
@@ -73,6 +78,8 @@ export class LocalModelSettingsRuntime {
     DEFAULT_MODEL_RUNTIME_SETTINGS,
   );
   #initializePromise: Promise<void> | undefined;
+  #statusReads = new Map<LocalModelRuntimeId, Promise<void>>();
+  #statusGeneration: Record<LocalModelRuntimeId, number> = { lmStudio: 0, ollama: 0 };
   #disposed = false;
 
   constructor(store: ModelRuntimeSettingsStore) {
@@ -104,6 +111,38 @@ export class LocalModelSettingsRuntime {
 
   retry(): Promise<void> {
     return this.initialize();
+  }
+
+  async refreshStatus(id?: LocalModelRuntimeId): Promise<void> {
+    if (this.#disposed) return;
+    if (id === undefined) {
+      await Promise.all(LOCAL_MODEL_RUNTIME_IDS.map((runtimeId) => this.refreshStatus(runtimeId)));
+      return;
+    }
+    if (this.#snapshot.status[id].applying) return;
+    const pending = this.#statusReads.get(id);
+    if (pending !== undefined) return pending;
+    const generation = ++this.#statusGeneration[id];
+    const operation = (async () => {
+      let state: ModelRuntimeServiceState;
+      try {
+        state = this.store.readStatus === undefined
+          ? "unknown"
+          : parseModelRuntimeServiceState(await this.store.readStatus(id));
+      } catch {
+        state = "unknown";
+      }
+      if (this.#disposed || generation !== this.#statusGeneration[id]) return;
+      if (this.#snapshot.services[id] !== state) {
+        this.#publish({ services: { ...this.#snapshot.services, [id]: state } });
+      }
+    })();
+    this.#statusReads.set(id, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.#statusReads.get(id) === operation) this.#statusReads.delete(id);
+    }
   }
 
   setEnabled(
@@ -169,9 +208,13 @@ export class LocalModelSettingsRuntime {
     if (enabled === this.#snapshot.settings[id].enabled) return;
     const settings = copySettings(this.#snapshot.settings);
     settings[id] = { enabled };
+    // A probe started before this change cannot describe its outcome.
+    ++this.#statusGeneration[id];
+    this.#statusReads.delete(id);
     this.#publish({
       settings,
       status: this.#statusWith(id, { applying: true, error: undefined }),
+      services: { ...this.#snapshot.services, [id]: "checking" },
     });
 
     const generation = ++this.#saveGeneration[id];
@@ -194,6 +237,7 @@ export class LocalModelSettingsRuntime {
         this.#publish({
           status: this.#statusWith(id, { applying: false, error: undefined }),
         });
+        void this.refreshStatus(id);
       },
       () => {
         if (
@@ -208,6 +252,7 @@ export class LocalModelSettingsRuntime {
           settings: restored,
           status: this.#statusWith(id, { applying: false, error: "write" }),
         });
+        void this.refreshStatus(id);
       },
     );
   }
@@ -239,6 +284,7 @@ export class LocalModelSettingsRuntime {
           patch.settings ?? this.#snapshot.settings,
         ),
       ),
+      services: Object.freeze({ ...(patch.services ?? this.#snapshot.services) }),
       revision: this.#snapshot.revision + 1,
     });
     for (const listener of [...this.#listeners]) listener();

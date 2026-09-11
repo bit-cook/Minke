@@ -145,6 +145,20 @@ function LocalModelServices({
   t,
 }: LocalModelSlotInjected): ReactNode {
   const snapshot = useLocalModelSettings(runtime);
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "hidden") void runtime.refreshStatus();
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 5_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [runtime]);
   return (
     <section
       data-minke-local-model-runtime-settings=""
@@ -165,6 +179,14 @@ function LocalModelServices({
             <span className="minke-local-model-row__identity">
               <span className="minke-local-model-row__heading">
                 {descriptor.displayName}
+                <span
+                  className="minke-local-model-state"
+                  data-state={snapshot.services[descriptor.id]}
+                  role="status"
+                  aria-label={`${descriptor.displayName}: ${t(snapshot.services[descriptor.id])}`}
+                >
+                  {t(snapshot.services[descriptor.id])}
+                </span>
               </span>
               <span className="minke-local-model-row__note">
                 {snapshot.available[descriptor.id]

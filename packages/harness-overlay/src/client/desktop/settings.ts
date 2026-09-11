@@ -11,6 +11,7 @@ import {
   NO_MODEL_RUNTIME_AVAILABILITY,
   parseModelRuntimeSettings,
   parseModelRuntimeSettingsSnapshot,
+  parseModelRuntimeServiceState,
 } from "@lencx/minke-model-runtime/contract";
 import {
   parseTerminalSettings,
@@ -271,6 +272,11 @@ export function desktopModelRuntimeSettingsStore(
     },
     async write(settings, runtimeId) {
       await bridge.write(parseModelRuntimeSettings(settings), runtimeId);
+    },
+    async readStatus(runtimeId) {
+      return bridge.readStatus === undefined
+        ? "unknown"
+        : parseModelRuntimeServiceState(await bridge.readStatus(runtimeId));
     },
   };
 }

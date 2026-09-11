@@ -42,6 +42,7 @@ import {
   DEFAULT_WEB_SEARCH_SETTINGS,
 } from "@minke/harness-overlay/web-search-settings-contract";
 import { requestDesktopRestart } from "./app-restart";
+import { createLocalModelStatusProbe } from "./local-model-status.ts";
 import {
   prepareDesktopApplication,
 } from "./application-entry";
@@ -541,6 +542,7 @@ class DesktopApplication {
             runtimeId,
           );
         },
+        createLocalModelStatusProbe(localModelCommands),
       );
     const remoteAccess = new RemoteAccessRuntime({
       settings: remoteSettings,

@@ -4,14 +4,17 @@ import {
   LOCAL_MODEL_RUNTIMES,
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
   MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
+  MODEL_RUNTIME_STATUS_READ_CHANNEL,
   parseLocalModelRuntimeId,
   parseModelRuntimeAvailability,
   parseModelRuntimeSettings,
+  parseModelRuntimeServiceState,
   type LocalModelRuntimeId,
   type ModelRuntimeAvailability,
   type ModelRuntimeReconfigureMode,
   type ModelRuntimeSettings,
   type ModelRuntimeSettingsSnapshot,
+  type ModelRuntimeServiceState,
 } from "@lencx/minke-model-runtime/contract";
 
 interface IpcMainLike {
@@ -69,6 +72,7 @@ export function bindModelRuntimeSettingsIpc(
     mode: ModelRuntimeSettingsTransactionPhase,
     runtimeId?: LocalModelRuntimeId,
   ) => Promise<void>,
+  probeStatus: (id: LocalModelRuntimeId) => Promise<ModelRuntimeServiceState> = async () => "unknown",
 ): ModelRuntimeSettingsBinding {
   const available = parseModelRuntimeAvailability(
     availabilityValue,
@@ -150,6 +154,15 @@ export function bindModelRuntimeSettingsIpc(
   };
   ipcMain.handle(MODEL_RUNTIME_SETTINGS_READ_CHANNEL, read);
   ipcMain.handle(MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL, write);
+  ipcMain.handle(MODEL_RUNTIME_STATUS_READ_CHANNEL, async (event, value) => {
+    assertAuthorized(authorize, event);
+    const id = parseLocalModelRuntimeId(value);
+    try {
+      return parseModelRuntimeServiceState(await probeStatus(id));
+    } catch {
+      return "unknown";
+    }
+  });
 
   let disposed = false;
   return Object.freeze({
@@ -158,6 +171,7 @@ export function bindModelRuntimeSettingsIpc(
       disposed = true;
       ipcMain.removeHandler(MODEL_RUNTIME_SETTINGS_READ_CHANNEL);
       ipcMain.removeHandler(MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL);
+      ipcMain.removeHandler(MODEL_RUNTIME_STATUS_READ_CHANNEL);
     },
   });
 }

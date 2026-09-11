@@ -9,6 +9,7 @@ import type {
   LocalModelRuntimeId,
   ModelRuntimeSettings,
   ModelRuntimeSettingsSnapshot,
+  ModelRuntimeServiceState,
 } from "@lencx/minke-model-runtime/contract";
 import type {
   InstalledPluginsSnapshot,
@@ -132,6 +133,7 @@ export interface AppUpdatePort extends AppUpdateSettingsStore {
 export interface ModelRuntimeSettingsStore {
   readonly available: boolean;
   read(): Promise<ModelRuntimeSettingsSnapshot>;
+  readStatus?(runtimeId: LocalModelRuntimeId): Promise<ModelRuntimeServiceState>;
   write(
     settings: ModelRuntimeSettings,
     runtimeId?: LocalModelRuntimeId,
@@ -409,6 +411,7 @@ export interface DesktopBrowserBridge {
 
 export interface DesktopModelRuntimeBridge {
   read(): Promise<unknown>;
+  readStatus?(runtimeId: LocalModelRuntimeId): Promise<unknown>;
   write(
     settings: ModelRuntimeSettings,
     runtimeId?: LocalModelRuntimeId,
