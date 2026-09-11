@@ -7,6 +7,8 @@ const { nativeTheme, webContents } = require('electron');
 
 /** Exercises the production renderer in a blank Session, before its header exists. */
 async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererValue, waitFor, workspace }) {
+  await writeFile(join(workspace, 'sidebar-code.ts'), Array.from({ length: 180 }, (_, index) =>
+    `export const value${index} = ${JSON.stringify('Native code preview '.repeat(16))};`).join('\n'));
   const pressEnter = () => {
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
     window.webContents.sendInputEvent({ type: 'char', keyCode: 'Return' });
@@ -107,6 +109,19 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   assert.deepEqual({ overlaps, creators }, {
     overlaps: [], creators: ['files', 'terminal', 'browser', 'browser-history', 'plugins'],
   }, 'blank Session controls must be separate and the native Start tab must directly offer Minke creation actions');
+  const guide = await rendererValue(window, `() => {
+    const entry = document.querySelector('[data-sidebar-right-guide-entry="files"]');
+    const section = document.querySelector('.minke-tabs-native-guide__section');
+    return {
+      description: entry.querySelector('.minke-tabs-native-guide__description')?.textContent,
+      heading: section.querySelector('h2').textContent,
+      nativeBottom: entry.getBoundingClientRect().bottom,
+      minkeTop: section.getBoundingClientRect().top,
+    };
+  }`);
+  assert.equal(guide.description, "Browse files in this session's workspace");
+  assert.equal(guide.heading, 'Minke');
+  assert.ok(guide.nativeBottom < guide.minkeTop, 'Minke cards follow the native guide entries');
 
   // Source input at the failing seam is now green; also exercise the same
   // global actions at compact widths and while DSH owns fullscreen.
@@ -289,9 +304,39 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   await add();
   await click('[data-minke-tabs-create-menu] [role="group"][aria-label="DSH"] [role="menuitem"]');
   await waitFor(() => rendererValue(window, `() => document.querySelector('[data-files-state="tree"] [data-files-path$="/sidebar-draft.txt"]') !== null`), 'native Workspace files tree');
+  const nativeFilesTabId = await rendererValue(window, `() => document.querySelector('[data-files-state="tree"]').closest('[data-dockkit-pane]').querySelector('[data-dockkit-tab][aria-selected="true"]').dataset.dockkitTab`);
   await click('[data-files-entry="file"][data-files-path$="/sidebar-draft.txt"] button');
   await waitFor(() => rendererValue(window, `() => document.querySelector('[data-textpreview-body]')?.textContent.includes('Original draft')`), 'native document preview beside Minke editor');
   assert.equal(await rendererValue(window, `() => document.querySelector('.minke-tabs-native-host[data-kind="files"] .cm-content')?.textContent.includes('Unsaved change')`), true, 'native preview leaves the custom editor draft intact');
+
+  await click(`[data-dockkit-tab="${nativeFilesTabId}"]`);
+  await click('[data-files-entry="file"][data-files-path$="/sidebar-code.ts"] button');
+  await waitFor(() => rendererValue(window, `() => document.querySelector('[data-code-block-content]')?.textContent.includes('value179')`), 'native code preview');
+  const codeLayout = await rendererValue(window, `() => {
+    const body = document.querySelector('[data-textpreview-body]');
+    const banner = body.querySelector('[data-code-block-banner]');
+    const port = body.querySelector('[data-code-block-content]');
+    const bannerRect = banner.getBoundingClientRect(), portRect = port.getBoundingClientRect();
+    window.__minkeCodeScrollObserved = false;
+    port.addEventListener('scroll', () => { window.__minkeCodeScrollObserved = true; }, { once: true });
+    port.scrollTo({ top: 120, left: 50 });
+    return {
+      edgeGap: Math.abs(bannerRect.right - body.getBoundingClientRect().right),
+      overlap: bannerRect.bottom - portRect.top,
+      overflow: getComputedStyle(port).overflow,
+      legacyBackground: getComputedStyle(body).backgroundImage,
+    };
+  }`);
+  assert.ok(codeLayout.edgeGap < 1 && codeLayout.overlap <= 1, JSON.stringify(codeLayout));
+  assert.equal(codeLayout.overflow, 'auto');
+  assert.equal(codeLayout.legacyBackground, 'none', 'DSH owns the banner and source scrollport without a Minke fill');
+  await waitFor(() => rendererValue(window, '() => window.__minkeCodeScrollObserved === true'), 'native code scroll state');
+  const codeTabId = await rendererValue(window, `() => document.querySelector('[data-textpreview-body]').closest('[data-dockkit-pane]').querySelector('[data-dockkit-tab][aria-selected="true"]').dataset.dockkitTab`);
+  await click(`[data-dockkit-tab="${nativeFilesTabId}"]`);
+  await click(`[data-dockkit-tab="${codeTabId}"]`);
+  await waitFor(() => rendererValue(window, `() => document.querySelector('[data-code-block-content]')?.scrollTop === 120`), 'restored native code scroll position');
+  if (process.env.MINKE_SIDEBAR_SCREENSHOT) await writeFile(`${process.env.MINKE_SIDEBAR_SCREENSHOT}.code-preview.png`, (await window.webContents.capturePage()).toPNG());
+  process.stdout.write('[sidebar-ui] native code banner, scrollport and saved position passed\n');
 
   await click('[data-minke-new-session-tabs-action] [data-minke-tabs-placement="bottom"]');
   await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open] .xterm-helper-textarea') !== null`), 'independent bottom Terminal');

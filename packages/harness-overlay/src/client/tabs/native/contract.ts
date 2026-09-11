@@ -47,6 +47,7 @@ export interface NativeGuideEntry {
   readonly kind: string;
   readonly order: number;
   readonly title: () => string;
+  readonly description?: () => string;
   readonly icon?: ComponentType<{ size?: number }>;
 }
 

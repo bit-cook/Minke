@@ -80,12 +80,17 @@ creation shortcuts continue to use the same controllers. The earlier
 The native add-tab button opens the shared dropdown with DSH and Minke groups.
 Choosing an entry creates it in that button's pane; dismissing the menu preserves
 the visible content and does not create a Start tab.
+The Start page follows `dsh-v0.1.5-rc.2`'s compass and descriptive native cards,
+with the Minke card list below them. Native descriptions appear for up to four
+entries and remain owned by the registering plugin's locale.
 
 The Files editor offers Preview, Source and Diff for Markdown and HTML files.
 Preview renders the current draft through DSH's document bodies; changing modes
 does not save or discard edits. In preview headers narrower than 360px, one More
 menu contains the view modes, system-open action and close action. Wider headers
 retain the direct buttons. DSH's native document tabs keep their own viewer menu.
+Native code previews use DSH's source scrollport below the Copy banner; the
+earlier Minke scrollbar-gutter background compensation is no longer needed.
 
 Blank-session global controls follow DSH's conversation grid column. While the
 native Sidebar is open, DSH owns its split, fullscreen, and collapse buttons;

@@ -948,8 +948,19 @@ body:has(
 .minke-tabs-native-guide__content {
   display: grid;
   width: 100%;
-  max-width: 360px;
+  max-width: 380px;
   gap: 24px;
+}
+
+.minke-tabs-native-guide__hero {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
+  color: var(--dsw-static-neutral-200);
+}
+
+body[data-ds-dark-theme] .minke-tabs-native-guide__hero {
+  color: var(--dsw-static-neutral-700);
 }
 
 .minke-tabs-native-guide__defaults,
@@ -991,12 +1002,32 @@ body:has(
 }
 
 .minke-tabs-native-guide__defaults .minke-tabs-empty__option {
-  min-height: 48px;
-  justify-content: center;
-  gap: 8px;
+  min-height: 56px;
+  padding: 14px 20px;
+  gap: 14px;
   border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: 20px;
-  background: transparent;
+  border-radius: 24px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.minke-tabs-native-guide__defaults {
+  gap: 14px;
+}
+
+.minke-tabs-native-guide__defaults .minke-tabs-empty__icon {
+  width: 26px;
+  height: 26px;
+}
+
+.minke-tabs-native-guide__placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.minke-tabs-native-guide__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
 .minke-tabs-native-guide__defaults .minke-tabs-empty__option:hover {
@@ -1004,7 +1035,21 @@ body:has(
 }
 
 .minke-tabs-native-guide__defaults .minke-tabs-empty__label {
+  overflow: hidden;
+  font-size: 15px;
   font-weight: 400;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-tabs-native-guide__description {
+  overflow: hidden;
+  color: var(--dsw-alias-label-caption);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .minke-tabs-native-guide__shortcut {
@@ -1172,25 +1217,6 @@ body:has(
   .minke-tabs-empty__option {
     transition: none;
   }
-}
-
-/* Paint the code banner through the reserved scrollbar gutter. Keep the body
-   as DSH's scroll owner for sticky banners, line links and saved positions. */
-[data-textpreview-body]:has([data-code-preview]) {
-  /* Pinned DSH CodeBlock: 18px line height plus 9px padding on each side. */
-  --minke-code-preview-banner-height: 36px;
-  margin-right: 0;
-  background-image: linear-gradient(
-    to bottom,
-    var(--dsw-alias-markdown-code-block-banner) var(--minke-code-preview-banner-height),
-    transparent var(--minke-code-preview-banner-height)
-  );
-  background-origin: border-box;
-  background-repeat: no-repeat;
-}
-
-[data-textpreview-body]:has([data-code-preview])::-webkit-scrollbar-track:vertical {
-  margin-top: calc(var(--minke-code-preview-banner-height) + 2px);
 }
 
 /* Keep the native tab chips clear of both custom toolbars and document bodies. */
