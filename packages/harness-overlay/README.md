@@ -81,6 +81,12 @@ The native add-tab button opens the shared dropdown with DSH and Minke groups.
 Choosing an entry creates it in that button's pane; dismissing the menu preserves
 the visible content and does not create a Start tab.
 
+The Files editor offers Preview, Source and Diff for Markdown and HTML files.
+Preview renders the current draft through DSH's document bodies; changing modes
+does not save or discard edits. In preview headers narrower than 360px, one More
+menu contains the view modes, system-open action and close action. Wider headers
+retain the direct buttons. DSH's native document tabs keep their own viewer menu.
+
 Blank-session global controls follow DSH's conversation grid column. While the
 native Sidebar is open, DSH owns its split, fullscreen, and collapse buttons;
 Minke retains Remote and bottom-panel actions in the conversation area and supplies

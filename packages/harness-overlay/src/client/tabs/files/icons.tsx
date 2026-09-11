@@ -6,6 +6,8 @@ import {
   Binary,
   ChevronDown,
   ChevronRight,
+  Ellipsis,
+  Eye,
   FileCode,
   FileDiff,
   FileSymlink,
@@ -59,6 +61,14 @@ function VscodeIcon(props: {
 
 export function FilesIcon(props: IconProps): ReactNode {
   return <LucideIcon icon={FolderOpen} size={props.size} />;
+}
+
+export function RenderedPreviewIcon(props: IconProps): ReactNode {
+  return <LucideIcon icon={Eye} size={props.size} />;
+}
+
+export function MorePreviewIcon(props: IconProps): ReactNode {
+  return <LucideIcon icon={Ellipsis} size={props.size} />;
 }
 
 export function DirectoryIcon(

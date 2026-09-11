@@ -12,7 +12,7 @@ import type {
 
 export type FilesViewMode = FileManagerViewMode;
 export type FilesExplorerPosition = FileManagerExplorerPosition;
-export type FilesPreviewMode = "source" | "diff";
+export type FilesPreviewMode = "preview" | "source" | "diff";
 
 export interface FilesTreeDirectoryState {
   readonly entries: readonly FileManagerEntry[];

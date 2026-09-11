@@ -1568,7 +1568,9 @@ test("Files preview keeps editing state compact and preserves save errors", () =
     '<header className="minke-files-preview__header">',
   );
   const headerEnd = previewSource.indexOf("</header>", headerStart);
-  const headerSource = previewSource.slice(headerStart, headerEnd);
+  const headerSource = previewSource.slice(headerStart, headerEnd) + readFileSync(
+    new URL("../packages/harness-overlay/src/client/tabs/files/PreviewActions.tsx", import.meta.url), "utf8",
+  );
   const dirtyIndex = headerSource.indexOf(
     'className="minke-files-preview__dirty"',
   );
@@ -1596,7 +1598,7 @@ test("Files preview keeps editing state compact and preserves save errors", () =
     /className="minke-files-preview__size"/u,
   );
   assert.match(
-    previewSource,
+    headerSource,
     /className="minke-files-preview__mode"/u,
   );
   assert.match(
@@ -2026,6 +2028,8 @@ test("Files tabs start at the project cwd and retain navigation history", async 
       import.meta.url,
     ),
     "utf8",
+  ) + readFileSync(
+    new URL("../packages/harness-overlay/src/client/tabs/files/PreviewActions.tsx", import.meta.url), "utf8",
   );
   const editorSource = readFileSync(
     new URL(

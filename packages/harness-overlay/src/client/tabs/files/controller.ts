@@ -1,3 +1,4 @@
+import { filesDocumentKind } from "./document-kind.ts";
 import type {
   DesktopFilesPort,
 } from "@minke/harness-overlay/client/desktop/index.ts";
@@ -480,6 +481,7 @@ export class FilesTabsController {
     const preview = tab.payload.preview;
     if (
       preview === undefined ||
+      (mode === "preview" && (preview.result?.kind !== "text" || preview.result.truncated || filesDocumentKind(preview.entry.path) === undefined)) ||
       (
         mode === "diff" &&
         (

@@ -1174,6 +1174,25 @@ body:has(
   }
 }
 
+/* Paint the code banner through the reserved scrollbar gutter. Keep the body
+   as DSH's scroll owner for sticky banners, line links and saved positions. */
+[data-textpreview-body]:has([data-code-preview]) {
+  /* Pinned DSH CodeBlock: 18px line height plus 9px padding on each side. */
+  --minke-code-preview-banner-height: 36px;
+  margin-right: 0;
+  background-image: linear-gradient(
+    to bottom,
+    var(--dsw-alias-markdown-code-block-banner) var(--minke-code-preview-banner-height),
+    transparent var(--minke-code-preview-banner-height)
+  );
+  background-origin: border-box;
+  background-repeat: no-repeat;
+}
+
+[data-textpreview-body]:has([data-code-preview])::-webkit-scrollbar-track:vertical {
+  margin-top: calc(var(--minke-code-preview-banner-height) + 2px);
+}
+
 /* Keep the native tab chips clear of both custom toolbars and document bodies. */
 [data-sidebar-right-panel] [data-dockkit-strip],
 [data-sidebar-right-float-host] [data-dockkit-float-grip] {

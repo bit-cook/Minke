@@ -48,6 +48,7 @@ import type {
 } from "./types.ts";
 import type { NativeTabsRuntime } from "./native/runtime.ts";
 import { NativeTabViewport, NativeTabsContent } from "./native/views.tsx";
+import { FilesDocumentContext, type FilesDocumentRuntime } from "./files/DocumentPreview.tsx";
 
 interface SessionListSelection {
   current: string | undefined;
@@ -73,6 +74,7 @@ const drawerFocusableSelector = [
 ].join(",");
 
 export interface TabsPanelProps {
+  documents?: FilesDocumentRuntime;
   native?: NativeTabsRuntime;
   placement: TabsPanelPlacement;
   runtime: TabsRuntime;
@@ -123,6 +125,7 @@ export function TabsPanel({
   presentation,
   setRightTrackWidth,
   useSessions,
+  documents,
   t,
 }: TabsPanelProps): ReactNode {
   const contentSnapshot = useSyncExternalStore(
@@ -403,7 +406,7 @@ export function TabsPanel({
   };
 
   return (
-    <>
+    <FilesDocumentContext.Provider value={{ documents, sessionId }}>
     {drawer && (
       <button
         type="button"
@@ -823,6 +826,6 @@ export function TabsPanel({
         createShortcuts.binding(placement, optionId)}
       shortcutPlatform={createShortcuts.platform}
     />
-    </>
+    </FilesDocumentContext.Provider>
   );
 }

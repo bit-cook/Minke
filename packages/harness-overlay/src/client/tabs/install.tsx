@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { installFilesDocumentPreview } from "./files/DocumentPreview.tsx";
 import type {
   HarnessClientContext,
 } from "../core/context.ts";
@@ -144,6 +145,7 @@ export function installTabs(
   ctx: HarnessClientContext,
   settings: MinkeSettingsRuntime,
 ): TabsRuntimes | undefined {
+  const documents = installFilesDocumentPreview(ctx);
   const workspacePorts = minkeWorkspacePorts(ctx.connection);
   const tabsPort = workspacePorts.tabs;
   const agentBrowserPort = desktopAgentBrowserPort();
@@ -696,6 +698,7 @@ export function installTabs(
         locale: TABS_NAMESPACE,
         inject: () => ({
           placement: "right" as const,
+          documents,
           native: nativeTabs,
           runtime: rightTabs,
           renderers: rightWorkspace.renderers,
@@ -716,6 +719,7 @@ export function installTabs(
         locale: TABS_NAMESPACE,
         inject: () => ({
           placement: "bottom" as const,
+          documents,
           runtime: bottomTabs,
           renderers: bottomWorkspace.renderers,
           createShortcuts,

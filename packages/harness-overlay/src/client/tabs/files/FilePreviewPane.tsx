@@ -18,11 +18,7 @@ import type {
   FilesTabsController,
 } from "./controller.ts";
 import {
-  ClosePreviewIcon,
-  DiffPreviewIcon,
   FileIcon,
-  OpenSystemIcon,
-  SourcePreviewIcon,
   UnsupportedPreviewIcon,
 } from "./icons.tsx";
 import type {
@@ -32,6 +28,9 @@ import type {
 import type {
   FilesPreviewState,
 } from "./types.ts";
+import { filesDocumentKind } from "./document-kind.ts";
+import { FilesDocumentPreview } from "./DocumentPreview.tsx";
+import { PreviewActions } from "./PreviewActions.tsx";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1_024) return `${bytes} B`;
@@ -71,8 +70,11 @@ function TextPreview(props: {
   } = props;
   const content = preview.draft ?? result.content;
   const comparison = preview.comparison;
+  const documentKind = filesDocumentKind(result.path);
   let body: ReactNode;
-  if (preview.mode === "source") {
+  if (preview.mode === "preview" && documentKind !== undefined && !result.truncated) {
+    body = <FilesDocumentPreview path={result.path} text={content} kind={documentKind} t={t} />;
+  } else if (preview.mode !== "diff") {
     body = (
       <CodeMirrorEditor
         key={`${result.path}:source`}
@@ -285,9 +287,6 @@ export function FilePreviewPane(props: {
     codeThemes.getSnapshot,
     codeThemes.getSnapshot,
   );
-  const canDiff =
-    preview.result?.kind === "text" &&
-    !preview.result.truncated;
   return (
     <aside
       id={props.id}
@@ -318,73 +317,7 @@ export function FilePreviewPane(props: {
             </span>
           )}
         </strong>
-        <div className="minke-files-preview__actions">
-          {preview.result?.kind === "text" && (
-            <div
-              className="minke-files-preview__mode"
-              role="group"
-              aria-label={t("files.preview.mode.group")}
-            >
-              <button
-                type="button"
-                aria-pressed={preview.mode === "source"}
-                aria-label={t("files.preview.mode.source")}
-                title={t("files.preview.mode.source")}
-                onClick={() =>
-                  controller.setPreviewMode(tabId, "source")}
-              >
-                <SourcePreviewIcon size={15} />
-              </button>
-              <button
-                type="button"
-                aria-pressed={preview.mode === "diff"}
-                aria-label={t("files.preview.mode.diff")}
-                title={t("files.preview.mode.diff")}
-                disabled={!canDiff}
-                onClick={() =>
-                  controller.setPreviewMode(tabId, "diff")}
-              >
-                <DiffPreviewIcon size={15} />
-              </button>
-            </div>
-          )}
-          {controller.nativeOpenAvailable && (
-            <button
-              type="button"
-              aria-label={t("files.preview.openSystem")}
-              title={t("files.preview.openSystem")}
-              onClick={() =>
-                controller.open(tabId, preview.entry.path)}
-            >
-              <OpenSystemIcon size={15} />
-            </button>
-          )}
-          <button
-            type="button"
-            aria-label={t("files.preview.close")}
-            title={t("files.preview.close")}
-            disabled={preview.saving}
-            onClick={(event) => {
-              if (preview.dirty) {
-                const view =
-                  event.currentTarget.ownerDocument.defaultView;
-                if (
-                  view !== null &&
-                  !view.confirm(
-                    t("files.preview.discardConfirm", {
-                      name: preview.entry.name,
-                    }),
-                  )
-                ) {
-                  return;
-                }
-              }
-              controller.closePreview(tabId);
-            }}
-          >
-            <ClosePreviewIcon size={15} />
-          </button>
-        </div>
+        <PreviewActions tabId={tabId} preview={preview} controller={controller} t={t} active={active} />
       </header>
       {preview.error !== undefined ? (
         <div className="minke-files-preview__state" role="alert">
