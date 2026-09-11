@@ -132,7 +132,7 @@ const harnessSidebarSource = readFileSync(
   "utf8",
 );
 const harnessDesktopSurfaceSources = [
-  "packages/client/ui-chat/src/client/details/DetailsPanel.tsx",
+  "packages/client/ui-sidebar-right/src/client/shell/SidebarRight.tsx",
   "packages/client/ui-conversation/src/client/skeleton/EmptyHero.tsx",
   "packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx",
 ].map((path) =>
@@ -278,7 +278,7 @@ test("the product overlay owns post-boot desktop adaptation", () => {
   );
   assert.match(
     desktopSurfaceSource,
-    /querySelector\(\s*':scope > \[data-slot="details"\]'\s*,?\s*\)/,
+    /querySelector\(\s*':scope > \[data-slot="rightbar"\]'\s*,?\s*\)/,
   );
   assert.doesNotMatch(
     desktopSurfaceSource,

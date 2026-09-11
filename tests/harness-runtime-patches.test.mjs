@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { createRequire, Module } from "node:module";
+import { transformSync } from "esbuild";
 import {
   applyHarnessRuntimePatches,
   resolveHarnessRuntimePatches,
@@ -132,6 +134,85 @@ test("declared Harness runtime patches apply to a disposable runtime", async () 
   });
 });
 
+test("dedicated RPC routes inject their server and unload with the caller", { timeout: 5_000 }, async () => {
+  const upstreamPath = resolve(repositoryRoot,
+    "vendor/deepseek-harness/packages/client/connection/lib/index.js");
+  const upstream = await readFile(upstreamPath, "utf8");
+  const runtimeRoot = await mkdtemp(join(tmpdir(), "minke-rpc-scope-"));
+  const target = join(runtimeRoot,
+    "node_modules/@deepseek-ai/dsh-client-connection/lib/index.js");
+  const { Context } = createRequire(upstreamPath)("@deepseek-ai/cordis");
+
+  async function registerChannel(source, broken) {
+    // Change only module syntax; exercise the real released Connection and Cordis scopes.
+    const loaded = new Module(upstreamPath);
+    loaded.filename = upstreamPath;
+    loaded.paths = Module._nodeModulePaths(dirname(upstreamPath));
+    loaded._compile(transformSync(source, { format: "cjs", loader: "js" }).code, upstreamPath);
+    const { HostConnectionService } = loaded.exports;
+    const root = new Context();
+    const routes = new Set();
+    const registered = Promise.withResolvers();
+    const fibers = [];
+    let remove;
+    try {
+      const web = root.plugin({ apply(ctx) {
+        ctx.provide("webServer", {
+          register(route) {
+            routes.add(route);
+            registered.resolve();
+            return () => routes.delete(route);
+          },
+        });
+      } });
+      fibers.push(web);
+      await web;
+      const connection = root.plugin({ apply(ctx) {
+        new HostConnectionService(ctx, [], { isAuthenticated: () => true });
+      } });
+      fibers.push(connection);
+      await connection;
+      const caller = root.plugin({
+        inject: ["connection", "webServer"],
+        apply(ctx) {
+          remove = ctx.connection.rpc.handle("/minke", async () => ({ ok: true, value: null }));
+        },
+      });
+      fibers.push(caller);
+      if (broken) {
+        await assert.rejects(caller.await(), /cannot get property "webServer" without inject/u);
+        assert.equal(routes.size, 0);
+        return;
+      }
+      await caller;
+      await registered.promise;
+      assert.deepEqual([...routes].map((route) => [route.kind, route.path]), [["prefix", "/minke"]]);
+      await caller.dispose();
+      assert.equal(routes.size, 0, "unloading the caller must withdraw its route");
+      assert.ok(root.get("connection"), "the shared service remains available");
+      await remove();
+      assert.equal(routes.size, 0);
+    } finally {
+      for (const fiber of fibers.reverse()) await fiber.dispose();
+    }
+  }
+
+  try {
+    await registerChannel(upstream, true);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, upstream);
+    const patches = await resolveHarnessRuntimePatches(repositoryRoot, [
+      "patches/deepseek-harness/dynamic-trusted-hosts.patch",
+      "patches/deepseek-harness/connection-rpc-webserver-scope.patch",
+    ]);
+    await applyHarnessRuntimePatches(runtimeRoot, patches);
+    await verifyHarnessRuntimePatchesApplied(runtimeRoot, patches);
+    await registerChannel(await readFile(target, "utf8"), false);
+  } finally {
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
+});
+
 test("runtime patches apply inside the Minke Git worktree", async () => {
   await withFixture(
     async ({ projectRoot, runtimeRoot, target }) => {
@@ -226,7 +307,7 @@ test("the background-process patch leaves generated ACL bundles to the runtime t
   );
 });
 
-test("the Windows picker worker keeps IPC open and avoids external path views", async () => {
+test("the Windows picker worker requests foreground, keeps IPC open, and avoids external path views", async () => {
   await withPatchedWin32PickerRuntime(async (runtimeRoot) => {
     const workerPath = resolve(
       runtimeRoot,
@@ -247,7 +328,14 @@ test("the Windows picker worker keeps IPC open and avoids external path views", 
       `"use strict";
 const dialog = { kind: "dialog" };
 const item = { kind: "item" };
+const keyboardEvents = [];
 function decode(value, offsetOrType, maybeType) {
+  if (offsetOrType === "str16") {
+    if (!Buffer.isBuffer(value) || value.length !== 8 || value.readBigUInt64LE() !== 4242n) {
+      throw new Error("unexpected UTF-16 pointer variable");
+    }
+    return "C:\\\\fixture\\\\安卓开发";
+  }
   if (maybeType === "void *") {
     return { owner: value.owner, slot: offsetOrType / 8 };
   }
@@ -256,11 +344,13 @@ function decode(value, offsetOrType, maybeType) {
   }
   throw new Error("unexpected fake koffi decode");
 }
-decode.string16 = () => "C:\\\\fixture\\\\安卓开发";
 module.exports = {
   call(fn, _prototype, _self, ...args) {
+    if (fn.slot === 3 && JSON.stringify(keyboardEvents) !== "[[18,0,0,0],[18,0,2,0]]") {
+      throw new Error("folder dialog must request foreground with an Alt press before Show");
+    }
     if (fn.slot === 20) args[0][0] = item;
-    if (fn.slot === 5) args[1][0] = { kind: "name" };
+    if (fn.slot === 5) args[1][0] = 4242n;
     return 0;
   },
   decode,
@@ -268,6 +358,7 @@ module.exports = {
     return {
       func(_abi, symbol) {
         if (symbol === "GetCurrentThreadId") return () => 4242;
+        if (symbol === "keybd_event") return (...args) => keyboardEvents.push(args);
         if (symbol === "SetThreadDpiAwarenessContext") {
           return () => ({});
         }
@@ -361,6 +452,7 @@ async function withProcessPolicyFixture(
   {
     aclBundles,
     launchExtension = ".js",
+    launchRelativePath,
     launchSource,
     startupFlags = 0x101,
     showWindow = 0,
@@ -372,11 +464,7 @@ async function withProcessPolicyFixture(
   );
   const launchPath = join(
     runtimeRoot,
-    "node_modules",
-    "@deepseek-ai",
-    "example",
-    "lib",
-    `index${launchExtension}`,
+    launchRelativePath ?? `node_modules/@deepseek-ai/example/lib/index${launchExtension}`,
   );
   const aclRoot = join(
     runtimeRoot,
@@ -462,29 +550,141 @@ launch("probe.exe", [], { stdio: "ignore", windowsHide: true });
 });
 
 test("Harness runtime process policy audits injectable child-process spawners", async () => {
-  for (const hidden of [false, true]) {
-    await withProcessPolicyFixture(
-      {
-        launchSource: `import { spawn } from "node:child_process";
+  for (const inline of [false, true]) {
+    for (const hidden of [false, true]) {
+      await withProcessPolicyFixture(
+        {
+          launchSource: `import { spawn } from "node:child_process";
 function launch(internals) {
-  const spawnProcess = internals.spawn ?? spawn;
-  spawnProcess("probe.exe", [], { windowsHide: ${String(hidden)} });
+  ${inline ? "" : "const spawnProcess = internals.spawn ?? spawn;"}
+  ${inline ? "(internals.spawn ?? spawn)" : "spawnProcess"}("probe.exe", [], { windowsHide: ${String(hidden)} });
 }
 `,
+        },
+        async (runtimeRoot) => {
+          const inspection =
+            await inspectHarnessRuntimeProcessPolicy(runtimeRoot);
+          assert.equal(inspection.launches.length, 1);
+          if (hidden) {
+            assert.deepEqual(inspection.violations, []);
+            await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+          } else {
+            await assert.rejects(
+              verifyHarnessRuntimeProcessPolicy(runtimeRoot),
+              /spawn\(\) must set windowsHide: true/u,
+            );
+          }
+        },
+      );
+    }
+  }
+});
+
+const catalogAppLaunchSource = `import { spawn } from "node:child_process";
+import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
+export const launchDetachedApp = (command, args, options) => new Promise((resolve, reject) => {
+  const child = spawn(command, [...args], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: options.windowsHide,
+    env: { ...scrubbedParentEnv(), ...options.env },
+  });
+  child.unref();
+  resolve();
+});
+`;
+
+test("catalog GUI launch policy retains adapter visibility only at both pinned artifact paths", async () => {
+  for (const artifact of ["index.js", "types/resolver.js"]) {
+    const source = artifact === "index.js"
+      ? catalogAppLaunchSource.replace("export const", "const")
+      : catalogAppLaunchSource;
+    await withProcessPolicyFixture(
+      {
+        launchRelativePath: `node_modules/@deepseek-ai/dsh-host-open-in-app/lib/${artifact}`,
+        launchSource: source,
       },
       async (runtimeRoot) => {
-        const inspection =
-          await inspectHarnessRuntimeProcessPolicy(runtimeRoot);
+        const inspection = await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
         assert.equal(inspection.launches.length, 1);
-        if (hidden) {
-          assert.deepEqual(inspection.violations, []);
-          await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
-        } else {
-          await assert.rejects(
-            verifyHarnessRuntimeProcessPolicy(runtimeRoot),
-            /spawn\(\) must set windowsHide: true/u,
-          );
+        assert.deepEqual(inspection.violations, []);
+        const observed = [];
+        const launch = new Function("spawn", "scrubbedParentEnv", `${source
+          .replace(/^import .*;\n/gmu, "")
+          .replace("export const", "const")}
+return launchDetachedApp;
+`)(
+          (command, args, options) => {
+            observed.push({ command, args, options });
+            return { unref() {} };
+          },
+          () => ({ PATH: "scrubbed-path", MODE: "parent" }),
+        );
+        for (const windowsHide of [undefined, false, true]) {
+          await launch("editor.exe", ["workspace"], { windowsHide, env: { MODE: "adapter" } });
         }
+        assert.deepEqual(observed, [undefined, false, true].map((windowsHide) => ({
+          command: "editor.exe",
+          args: ["workspace"],
+          options: {
+            detached: true,
+            stdio: "ignore",
+            windowsHide,
+            env: { PATH: "scrubbed-path", MODE: "adapter" },
+          },
+        })));
+      },
+    );
+  }
+});
+
+test("catalog GUI launch policy rejects other paths, owners, and changed process options", async () => {
+  const cases = [
+    { path: "node_modules/@deepseek-ai/example/lib/index.js" },
+    { path: "node_modules/@deepseek-ai/dsh-host-open-in-app/lib/other.js" },
+    { source: catalogAppLaunchSource.replace("launchDetachedApp =", "backgroundLaunch =") },
+    { source: catalogAppLaunchSource.replace("(command, args, options)", "(command, args, settings)") },
+    { source: catalogAppLaunchSource.replace("(resolve, reject)", "(command, reject)") },
+    { source: catalogAppLaunchSource.replace('stdio: "ignore",', 'stdio: "ignore", shell: false,') },
+    { source: catalogAppLaunchSource.replace("...scrubbedParentEnv()", "...process.env") },
+    { source: catalogAppLaunchSource.replace("...scrubbedParentEnv(), ...options.env", "...options.env, ...scrubbedParentEnv()") },
+    { source: catalogAppLaunchSource.replace("windowsHide: options.windowsHide", "windowsHide: false") },
+    { source: catalogAppLaunchSource.replace("spawn(command, [...args]", "spawn(command, args") },
+  ];
+  for (const entry of cases) {
+    await withProcessPolicyFixture(
+      {
+        launchRelativePath: entry.path ?? "node_modules/@deepseek-ai/dsh-host-open-in-app/lib/index.js",
+        launchSource: entry.source ?? catalogAppLaunchSource,
+      },
+      async (runtimeRoot) => {
+        await assert.rejects(
+          verifyHarnessRuntimeProcessPolicy(runtimeRoot),
+          /spawn\(\) must set windowsHide: true/u,
+        );
+      },
+    );
+  }
+});
+
+test("catalog GUI launch exception still audits extra spawns in the same owner and file", async () => {
+  for (const source of [
+    `${catalogAppLaunchSource}\nspawn("helper.exe", [], {});\n`,
+    catalogAppLaunchSource.replace("  child.unref();", '  spawn("helper.exe", [], {});\n  child.unref();'),
+  ]) {
+    await withProcessPolicyFixture(
+      {
+        launchRelativePath: "node_modules/@deepseek-ai/dsh-host-open-in-app/lib/index.js",
+        launchSource: source,
+      },
+      async (runtimeRoot) => {
+        const inspection = await inspectHarnessRuntimeProcessPolicy(runtimeRoot);
+        assert.equal(inspection.launches.length, 2);
+        assert.equal(inspection.violations.length, 1);
+        await assert.rejects(
+          verifyHarnessRuntimeProcessPolicy(runtimeRoot),
+          /spawn\(\) must set windowsHide: true/u,
+        );
       },
     );
   }
@@ -548,7 +748,7 @@ spawn("probe.exe", [], { stdio: "ignore", windowsHide: true });
   }
 });
 
-test("restricted launch hardening follows the alpha.2 delegated process owner", async () => {
+test("restricted launch hardening follows a delegated restricted process owner", async () => {
   await withProcessPolicyFixture(
     {
       aclBundles: [],
@@ -628,6 +828,126 @@ function spawnInheritedJobProcess(api, options) {
       assert.equal(second.changedLaunches, 0);
     },
   );
+});
+
+const sharedJobOwnerSource = `function createRestrictedProcess(api, options, commandLine, creationFlags, startupInfo, processInfo) {
+  return api.createProcessAsUserW(
+    options.token, null, commandLine, null, null, 1, creationFlags, null,
+    options.cwd, startupInfo, processInfo
+  );
+}
+function spawnPipedProcess(api, options) {
+  const startupInfo = {};
+  encodeStartupInfo(startupInfo, { dwFlags: 0x100, hStdInput: null });
+  return createRestrictedProcess(api, options, "piped.exe", 0, startupInfo, {});
+}
+function spawnJobProcess(api, options, resolveStdio, createName, create) {
+  const startupInfo = {};
+  encodeStartupInfo(startupInfo, { dwFlags: 0x100, hStdInput: null });
+  return create(startupInfo, {});
+}
+function spawnInheritedJobProcess(api, options) {
+  return spawnJobProcess(api, options, () => ({}), "CreateProcessAsUserW", (startupInfo, processInfo) =>
+    createRestrictedProcess(api, options, "job.exe", 4, startupInfo, processInfo));
+}
+function spawnCurrentTokenJobProcess(api, options) {
+  return spawnJobProcess(api, options, () => ({}), "CreateProcessW", (startupInfo, processInfo) =>
+    api.createProcessW(null, "ordinary.exe", null, null, 1, 1028, null, options.cwd, startupInfo, processInfo));
+}
+`;
+
+async function writeSharedJobOwner(runtimeRoot, source) {
+  const path = join(
+    runtimeRoot,
+    "node_modules",
+    "@deepseek-ai",
+    "dsh-win32-process",
+    "lib",
+    "index.js",
+  );
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, source);
+  return path;
+}
+
+test("alpha.2 shared Job hardening hides both token types at the native call", async () => {
+  await withProcessPolicyFixture(
+    {
+      aclBundles: [],
+      launchSource: `import { spawn } from "node:child_process";
+(internals.spawn ?? spawn)("runner.exe", [], { windowsHide: true });
+`,
+    },
+    async (runtimeRoot) => {
+      const path = await writeSharedJobOwner(runtimeRoot, sharedJobOwnerSource);
+      await assert.rejects(
+        verifyHarnessRuntimeProcessPolicy(runtimeRoot),
+        /STARTF_USESHOWWINDOW.*SW_HIDE/u,
+      );
+      assert.deepEqual(await hardenHarnessWindowsRestrictedLaunches(runtimeRoot), {
+        changedLaunches: 2,
+        files: 1,
+        launches: 3,
+      });
+      const source = await readFile(path, "utf8");
+      const launches = new Function("encodeStartupInfo", `${source}
+return [spawnPipedProcess, spawnInheritedJobProcess, spawnCurrentTokenJobProcess];
+`)(Object.assign);
+      const observed = [];
+      const api = {
+        createProcessAsUserW: (...args) => observed.push({ api: "restricted", ...args[9] }),
+        createProcessW: (...args) => observed.push({ api: "ordinary", ...args[8] }),
+      };
+      for (const launch of launches) launch(api, {});
+      assert.deepEqual(observed, ["restricted", "restricted", "ordinary"].map((api) => ({
+        api,
+        dwFlags: 0x101,
+        wShowWindow: 0,
+        hStdInput: null,
+      })));
+      const inspection = await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+      assert.equal(inspection.launches.length, 1);
+      assert.equal(inspection.restrictedLaunches.length, 2);
+      assert.equal((await hardenHarnessWindowsRestrictedLaunches(runtimeRoot)).changedLaunches, 0);
+    },
+  );
+});
+
+test("alpha.2 shared Job audit rejects missing or bypassed STARTUPINFOW before mutation", async () => {
+  const cases = [
+    {
+      source: sharedJobOwnerSource.replace("return create(startupInfo, {});", "return create({}, {});"),
+      error: /spawnJobProcess must pass its encoded STARTUPINFOW/u,
+    },
+    {
+      source: sharedJobOwnerSource.replace('"job.exe", 4, startupInfo, processInfo', '"job.exe", 4, {}, processInfo'),
+      error: /spawnJobProcess callback must pass its STARTUPINFOW/u,
+    },
+    {
+      source: sharedJobOwnerSource.replace("options.cwd, startupInfo, processInfo));", "options.cwd, {}, processInfo));"),
+      error: /spawnJobProcess callback must pass its STARTUPINFOW/u,
+    },
+    {
+      source: `${sharedJobOwnerSource}\napi.createProcessW(null, "escape.exe", null, null, 1, 0, null, null, {}, {});\n`,
+      error: /CreateProcessW must receive STARTUPINFOW through spawnJobProcess/u,
+    },
+  ];
+  for (const { source, error } of cases) {
+    await withProcessPolicyFixture(
+      {
+        aclBundles: [],
+        launchSource: `import { spawn } from "node:child_process";
+spawn("runner.exe", [], { windowsHide: true });
+`,
+      },
+      async (runtimeRoot) => {
+        const path = await writeSharedJobOwner(runtimeRoot, source);
+        await assert.rejects(verifyHarnessRuntimeProcessPolicy(runtimeRoot), error);
+        await assert.rejects(hardenHarnessWindowsRestrictedLaunches(runtimeRoot), error);
+        assert.equal(await readFile(path, "utf8"), source);
+      },
+    );
+  }
 });
 
 test("delegated restricted launch hardening rejects an unconfigured launch", async () => {

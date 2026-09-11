@@ -691,6 +691,130 @@ test("Minke Host ignores unconsumed events validated by SessionController", asyn
   });
 });
 
+test("Minke Host reuses an IM reply after the released v2 history migrates to v3", async () => {
+  const { SessionFormatEventCollector } = await import(
+    "@vendor/deepseek-harness/packages/session/session-format/lib/index.js"
+  );
+  const {
+    restoreReleasedV3Artifact,
+    sessionFormatV2ToV3,
+  } = await import(
+    "@vendor/deepseek-harness/packages/session/session-format-v2-to-v3/lib/index.js"
+  );
+  const input = {
+    operationId: "weixin:account-1:message-before-upgrade",
+    sessionId: "minke-im-before-upgrade",
+    text: "Keep the reply across upgrades",
+  };
+  const sourceHeader = {
+    version: 2,
+    id: input.sessionId,
+    createdAt: 1,
+    isSeeded: false,
+    delegationDepth: 0,
+    agentPreset: "code",
+  };
+  const sourceEvents = [
+    { type: "turn/start", data: { turn: 1 } },
+    { type: "step/start", data: { turn: 1, step: 1 } },
+    {
+      type: "user/message",
+      data: {
+        id: "user-before-upgrade",
+        role: "user",
+        content: [{ type: "text", text: input.text }],
+        source: { kind: "user", rpcId: input.operationId },
+      },
+      surfaceOp: "append",
+    },
+    {
+      type: "request/header",
+      data: {
+        header: {
+          config: { provider: "mock", model: "mock" },
+          system: "You are Minke.",
+        },
+        reason: "initial",
+      },
+    },
+    {
+      type: "assistant/message",
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: "assistant-before-upgrade",
+          role: "assistant",
+          content: [{ type: "text", text: "Preserved reply" }],
+          source: { kind: "model", provider: "mock", model: "mock" },
+        },
+        stream: [],
+      },
+      surfaceOp: "append",
+    },
+    { type: "step/end", data: { turn: 1, step: 1 } },
+    { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } },
+  ].map((event, seq) => ({ ...event, seq, time: seq + 1 }));
+  const beforeMigration = JSON.stringify({ sourceHeader, sourceEvents });
+  const targetHeader = sessionFormatV2ToV3.migrateHeader(sourceHeader);
+  const stage = sessionFormatV2ToV3.createStage({
+    sourceHeader,
+    targetHeader,
+    sourceInheritedEventCount: 0,
+    sourceKind: "decoded",
+  });
+  const collector = new SessionFormatEventCollector();
+  for (const event of sourceEvents) stage.transformEvent(event, collector);
+  const migrated = restoreReleasedV3Artifact({
+    header: targetHeader,
+    events: collector.values,
+    inheritedEventCount: stage.finish(collector),
+  }, new Set());
+  assert.equal(
+    JSON.stringify({ sourceHeader, sourceEvents }),
+    beforeMigration,
+    "migration must preserve its predecessor history",
+  );
+  assert.equal(migrated.header.version, 3);
+  assert.equal(migrated.header.agentPreset, "ptc");
+  const systemEvents = migrated.events.filter(
+    (event) => event.type === "system/message",
+  );
+  assert.equal(systemEvents.length, 2);
+  assert.deepEqual(systemEvents[1].surfaceOp, {
+    op: "replace",
+    startSeq: systemEvents[0].seq,
+    endSeq: systemEvents[0].seq,
+  });
+  assert.deepEqual(systemEvents[1].data.message.content, [
+    { type: "text", text: "You are Minke." },
+  ]);
+  const controller = {
+    async create(request) { return { sessionId: request.sessionId }; },
+    async inspect() { return { events: migrated.events }; },
+    async prompt() { throw new Error("migrated operations must not be queued twice"); },
+  };
+  assert.deepEqual(
+    await runAgentTurnInHarness(controller, input, new AbortController().signal),
+    {
+      outcome: "completed",
+      sessionId: input.sessionId,
+      text: "Preserved reply",
+      turn: 1,
+      endReason: "completed",
+    },
+  );
+  await assert.rejects(
+    runAgentTurnInHarness(
+      controller,
+      { ...input, text: "A different message with the same operation id" },
+      new AbortController().signal,
+    ),
+    { code: "operation-conflict" },
+    "the migrated reply must remain bound to its original IM input",
+  );
+});
+
 test("Minke Host scans a long Session once and follows its event tail without polling", async () => {
   const operationId = "weixin:account-1:message-long-history";
   const prefixLength = 2_048;

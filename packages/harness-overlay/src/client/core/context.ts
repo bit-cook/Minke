@@ -56,6 +56,8 @@ export interface SlotRegistration {
   key?: string;
   order?: number;
   priority?: number;
+  /** Required by chain slots; this adapter uses selectors without owner inputs. */
+  select?: () => boolean | null;
   label?: () => string;
   locale?: string;
   inject?: () => unknown;
@@ -155,8 +157,8 @@ export interface HarnessClientContext {
   ): unknown;
   locale: LocaleService;
   layout: {
-    openDetails(): void;
-    closeDetails(): void;
+    openRightbar(track: boolean, fullscreen: boolean): void;
+    closeRightbar(): void;
     toggleSidebar(): void;
   };
   slots: SlotService;

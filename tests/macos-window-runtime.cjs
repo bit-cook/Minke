@@ -247,12 +247,12 @@ async function run() {
           </div>
         </div>
         <div class="detailsColumn">
-          <div data-slot="details">
-            <div class="details"></div>
+          <div data-slot="rightbar">
+            <div data-slot="rightbar.session"><div class="details" data-sidebar-right-panel="push"></div></div>
           </div>
         </div>
         <div data-shell-overlay></div>
-        <div class="detailsHandle" data-side="details"></div>
+        <div class="detailsHandle" data-side="rightbar"></div>
         <div
           class="tabsWindowDrag"
           data-minke-tabs-window-drag

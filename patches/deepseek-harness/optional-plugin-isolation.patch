@@ -1,9 +1,8 @@
 diff --git a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
+index 1b31f0f..8cfc8eb 100644
 --- a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
 +++ b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
-@@ -1,6 +1,15 @@
- import { createRequire } from "node:module";
- import { Context, Inject, Service, composeError } from "@deepseek-ai/cordis";
+@@ -3,2 +3,11 @@ import { Context, Inject, Service, composeError } from "@deepseek-ai/cordis";
  import { deepEqual, defineProperty, isNonNullable, isNullable, valueMap } from "@deepseek-ai/cosmokit";
 +function reportIsolatedEntryFailure(context, entry, error) {
 +	try {
@@ -15,19 +14,11 @@ diff --git a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js b/node_
 +	} catch {}
 +}
  //#region lib/types/internal.js
- /** Helpers for locating the current Node internal module loader. */
- var ModuleLoader;
-@@ -63,6 +72,7 @@ var EntryGroup = class {
- 		entry.parent = this;
- 		try {
+@@ -65,2 +74,3 @@ var EntryGroup = class {
  			await entry.update(options, true, true);
 +			entry.failure = entry.lastFailure = void 0;
  		} catch (error) {
- 			if (existing) entry.parent = previousParent;
- 			else delete this.tree.store[id];
-@@ -96,11 +106,33 @@ var EntryGroup = class {
- 		try {
- 			const outcomes = await Promise.allSettled(config.map((options) => this.create(options)));
+@@ -98,3 +108,25 @@ var EntryGroup = class {
  			if (this.ctx.fiber.uid === null) return;
 -			const failures = outcomes.filter((outcome) => outcome.status === "rejected").map((outcome) => outcome.reason);
 +			const failures = [];
@@ -54,19 +45,16 @@ diff --git a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js b/node_
 +				reportIsolatedEntryFailure(this.context, failedEntry, outcome.reason);
 +			}
  			if (failures.length === 1) throw failures[0];
- 			if (failures.length > 1) throw new AggregateError(failures, "loader entries failed to apply");
+@@ -102,3 +134,3 @@ var EntryGroup = class {
  			for (const id of Object.keys(oldMap)) if (!newMap[id]) await this.remove(id, true);
 -			this.data = config;
 +			this.data = effectiveConfig;
  		} catch (error) {
- 			const rollbackErrors = [];
- 			for (const id of Object.keys(newMap).reverse()) {
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
+index 8dd94c6..964744e 100644
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
-@@ -830,6 +830,40 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
- 	}
- 	throw new Error(`${binName}: cannot resolve profile bundle ${JSON.stringify(packageName)} from the dsh installation or ${profileDir}; run 'dsh plugin --profile ${basename(profileDir)} install' if its dependency is not installed`);
+@@ -832,2 +832,36 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
  }
 +function isolateExternalBundleEntry(entry) {
 +	const isolated = {
@@ -103,56 +91,37 @@ diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/
 +	};
 +}
  /**
- * Load a profile: resolve every `dsh.profile.bundles` entry to its patch
- * layer and parse the profile's own patch file. A listed bundle without a
-@@ -856,16 +890,19 @@ function loadProfile(binName, name, installAnchor, home = resolveDshHome(), opti
- 	const rawPatchReload = manifest.dsh?.profile?.patchReload;
- 	if (rawPatchReload !== void 0 && rawPatchReload !== "live" && rawPatchReload !== "startup") throw new Error(`${binName}: profile manifest ${join(dir, "package.json")} dsh.profile.patchReload must be "live" or "startup"`);
+@@ -848,3 +882,5 @@ function loadProfileDirectory(binName, dir, installAnchor, options = {}) {
  	const patchReload = rawPatchReload ?? "live";
 -	const layers = bundles.map((packageName) => {
 +	const externalBundles = new Set(Object.keys(manifest.dependencies ?? {}));
 +	const pluginPolicy = readMinkePluginPolicy();
 +	const layers = bundles.filter((packageName) => !externalBundles.has(packageName) || !pluginPolicy.safeMode && !pluginPolicy.disabled.has(packageName)).map((packageName) => {
  		const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir);
- 		const declared = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).dsh?.bundle?.patch;
- 		if (declared === void 0) throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`);
+@@ -853,2 +889,3 @@ function loadProfileDirectory(binName, dir, installAnchor, options = {}) {
  		const patchPath = join(packageDir, declared);
 +		const patches = loadOverlayPatches(binName, patchPath);
  		return {
- 			packageName,
- 			packageDir,
+@@ -857,3 +894,3 @@ function loadProfileDirectory(binName, dir, installAnchor, options = {}) {
  			patchPath,
 -			patches: loadOverlayPatches(binName, patchPath)
 +			patches: externalBundles.has(packageName) ? isolateExternalBundlePatches(patches) : patches
  		};
- 	});
- 	const patchPath = join(dir, PROFILE_PATCH_FILENAME);
-@@ -1398,7 +1435,7 @@ function installFailLoud(binName, proc = process, release) {
- * @param binName - the diagnostic prefix on the thrown error.
- */
+@@ -1434,3 +1471,3 @@ function installFailLoud(binName, proc = process, release) {
  function assertEntriesLoaded(ctx, binName) {
 -	const failed = [...ctx.loader.entries()].filter((entry) => entry.fiber === void 0 && !entry.disabled);
 +	const failed = [...ctx.loader.entries()].filter((entry) => entry.fiber === void 0 && !entry.disabled && !(entry.options.failurePolicy === "isolate" && entry.failure !== void 0));
  	if (failed.length > 0) {
- 		const names = failed.map((entry) => entry.options.name).join(", ");
- 		throw new Error(`${binName}: plugin(s) failed to load: ${names}; Cordis startup failed because these plugin(s) could not be resolved (see the error(s) logged above)`);
-@@ -1437,6 +1474,7 @@ async function assertEntriesActivated(ctx, binName) {
- 		if (fiber === void 0 || entry.disabled) continue;
- 		const state = fiber.state;
+@@ -1473,2 +1510,3 @@ async function assertEntriesActivated(ctx, binName) {
  		if (state === FIBER_ACTIVE) continue;
 +		if (entry.options.failurePolicy === "isolate") continue;
  		if (state === FIBER_FAILED) {
- 			try {
- 				await fiber.await();
 diff --git a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
+index d3d818d..5ed3c69 100644
 --- a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
-@@ -113,7 +113,7 @@ let PluginInventoryGateway = (() => {
- 					entryId: pluginEntryId(entry.id),
- 					moduleName: entry.options.name,
+@@ -115,3 +115,3 @@ let PluginInventoryGateway = (() => {
  					enabled: !entry.disabled,
 -					fiberPhase: entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state]
 +					fiberPhase: entry.failure === void 0 ? entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state] : "failed"
  				});
- 			}
- 			const presets = this.ctx.get("agentPresets");

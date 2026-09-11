@@ -529,70 +529,50 @@ test("Tabs layout state hydrates both panels without overwriting interaction", a
   layout.dispose();
 });
 
-test("Harness Layout exposes only the alpha.2 public Details transitions", () => {
-  const layout = new HarnessLayoutController();
-  assert.deepEqual(
-    Object.getOwnPropertyNames(
-      Object.getPrototypeOf(layout),
-    ).sort(),
-    [
-      "attachPanels",
-      "closeDetails",
-      "constructor",
-      "openDetails",
-      "toggleSidebar",
-    ],
-  );
-  assert.throws(
-    () => layout.openDetails(),
-    /panel actions not wired/u,
-  );
-
+test("Harness Layout exposes right Sidebar presentation and main navigation", () => {
   const transitions = [];
-  layout.attachPanels({
+  const layout = new HarnessLayoutController({
     toggleSidebar: () => transitions.push("toggle-sidebar"),
-    openDetails: () => transitions.push("open-details"),
-    closeDetails: () => transitions.push("close-details"),
-  });
+    openRightbar: (track, fullscreen) => transitions.push(["open-rightbar", track, fullscreen]),
+    closeRightbar: () => transitions.push("close-rightbar"),
+    selectPanel: (id) => transitions.push(["select-panel", id]),
+  }, (id) => id === "files");
   layout.toggleSidebar();
-  layout.openDetails();
-  layout.closeDetails();
+  layout.openRightbar(true, false);
+  layout.openRightbar(false, true);
+  layout.closeRightbar();
+  const navigation = layout.beginNavigation();
+  layout.selectPanel("files");
+  assert.equal(navigation.aborted, true);
+  layout.selectPanel(null);
+  assert.throws(() => layout.selectPanel("missing"), /not registered/u);
   assert.deepEqual(transitions, [
     "toggle-sidebar",
-    "open-details",
-    "close-details",
+    ["open-rightbar", true, false],
+    ["open-rightbar", false, true],
+    "close-rightbar",
+    ["select-panel", "files"],
+    ["select-panel", null],
   ]);
+  const pending = layout.beginNavigation();
+  layout.dispose();
+  assert.equal(pending.aborted, true);
 });
 
-test("Harness Chat owns the alpha.2 native Details slot", () => {
-  const chatApplySource = readFileSync(
+test("Harness native Sidebar owns its rightbar and session preview seats", () => {
+  const sidebarSource = readFileSync(
     new URL(
-      "../vendor/deepseek-harness/packages/client/ui-chat/src/client/apply.ts",
+      "../vendor/deepseek-harness/packages/client/ui-sidebar-right/src/client/index.ts",
       import.meta.url,
     ),
     "utf8",
   );
-  const contract = inspectTypeScriptInvocationContract(
-    chatApplySource,
-  );
-  assert.equal(
-    contract.callWithStringArgumentCount(
-      "ctx.slots.inject",
-      0,
-      "details",
-    ),
-    1,
-  );
-  assert.equal(contract.callCount("ctx.layout.openDetails"), 1);
-  assert.equal(contract.callCount("ctx.layout.closeDetails"), 1);
-  assert.equal(
-    contract.stringCount("conversation.details.tool"),
-    1,
-  );
-  assert.equal(
-    contract.stringCount("conversation.details.presentation"),
-    0,
-  );
+  const contract = inspectTypeScriptInvocationContract(sidebarSource);
+  assert.equal(contract.callWithStringArgumentCount("ctx.slots.inject", 0, "rightbar"), 1);
+  assert.equal(contract.callCount("layout.openRightbar"), 1);
+  assert.equal(contract.callCount("layout.closeRightbar"), 1);
+  assert.equal(contract.callWithStringArgumentCount("ctx.slots.inject", 0, "sidebar.right.pane.tab"), 1);
+  assert.equal(contract.stringCount("conversation.details.tool"), 0);
 });
 
 test("Web tab URLs accept only credential-free HTTP(S)", () => {
@@ -3868,7 +3848,7 @@ test("Tabs disposal releases an open host panel", () => {
   assert.deepEqual(hostEvents, ["show", "hide"]);
 });
 
-test("mobile right Tabs use a drawer without opening the desktop Details track", () => {
+test("mobile right Tabs use a drawer without opening the desktop right Sidebar track", () => {
   const layoutEvents = [];
   const listeners = new Set();
   const media = {
@@ -3884,8 +3864,12 @@ test("mobile right Tabs use a drawer without opening the desktop Details track",
   };
   const host = new ResponsiveRightTabsHost(
     {
-      openDetails: () => layoutEvents.push("open"),
-      closeDetails: () => layoutEvents.push("close"),
+      openRightbar: (track, fullscreen) => {
+        assert.equal(track, true);
+        assert.equal(fullscreen, false);
+        layoutEvents.push("open");
+      },
+      closeRightbar: () => layoutEvents.push("close"),
     },
     {
       view: {
@@ -3930,8 +3914,12 @@ test("Electron right Tabs remain docked at a compact width", () => {
   media.matches = true;
   const host = new ResponsiveRightTabsHost(
     {
-      openDetails: () => layoutEvents.push("open"),
-      closeDetails: () => layoutEvents.push("close"),
+      openRightbar: (track, fullscreen) => {
+        assert.equal(track, true);
+        assert.equal(fullscreen, false);
+        layoutEvents.push("open");
+      },
+      closeRightbar: () => layoutEvents.push("close"),
     },
     {
       drawerEnabled: false,
@@ -4681,7 +4669,7 @@ test("Tabs bottom placement has independent height and resize affordances", () =
   );
   assert.match(
     TABS_STYLES,
-    /\[data-minke-tabs-bottom-open\][\s\S]*?>\s*\[data-side="details"\][\s\S]*?bottom:\s*calc\(var\(--minke-tabs-panel-height\) \+ 5px\);/u,
+    /\[data-minke-tabs-bottom-open\][\s\S]*?>\s*\[data-side="rightbar"\][\s\S]*?bottom:\s*calc\(var\(--minke-tabs-panel-height\) \+ 5px\);/u,
   );
   assert.match(
     TABS_STYLES,
@@ -5067,7 +5055,7 @@ test("right Tabs window dragging covers populated and empty panels without claim
   );
 });
 
-test("Tabs resize stays interactive with and without a host details handle", async () => {
+test("Tabs resize stays interactive with and without a host right Sidebar handle", async () => {
   class FakeStyle {
     values = new Map();
     priorities = new Map();
@@ -5159,7 +5147,7 @@ test("Tabs resize stays interactive with and without a host details handle", asy
   try {
     const handle = new FakeElement();
     const nativeHandle = new FakeElement();
-    nativeHandle.dataset.side = "details";
+    nativeHandle.dataset.side = "rightbar";
     const detailsColumn = new FakeElement(360);
     const detailsSlot = new FakeElement();
     detailsSlot.parentElement = detailsColumn;
@@ -5185,7 +5173,7 @@ test("Tabs resize stays interactive with and without a host details handle", asy
         removeEventListener() {},
       },
       querySelector: (selector) =>
-        selector === '[data-slot="details"]'
+        selector === '[data-slot="rightbar"]'
           ? detailsSlot
           : undefined,
     };
@@ -5247,7 +5235,7 @@ test("Tabs resize stays interactive with and without a host details handle", asy
         removeEventListener() {},
       },
       querySelector: (selector) =>
-        selector === '[data-slot="details"]'
+        selector === '[data-slot="rightbar"]'
           ? emptyDetailsSlot
           : undefined,
     };

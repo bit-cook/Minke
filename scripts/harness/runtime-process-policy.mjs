@@ -175,6 +175,9 @@ function collectChildProcessBindings(ast) {
 }
 
 function childProcessMethod(callee, bindings) {
+  if (callee.type === "LogicalExpression" && callee.operator === "??") {
+    return childProcessMethod(callee.right, bindings);
+  }
   if (
     callee.type === "Identifier" &&
     bindings.direct.has(callee.name)
@@ -197,6 +200,122 @@ function hasExplicitHiddenWindow(call) {
     const property = objectProperty(argument, "windowsHide");
     return property?.value.type === "Literal" && property.value.value === true;
   });
+}
+
+function isIdentifier(node, name) {
+  return node?.type === "Identifier" && node.name === name;
+}
+
+function isOptionsMember(node, name) {
+  return node?.type === "MemberExpression" &&
+    !node.computed &&
+    isIdentifier(node.object, "options") &&
+    isIdentifier(node.property, name);
+}
+
+function hasNamedImport(ast, source, name) {
+  return ast.body.some((statement) =>
+    statement.type === "ImportDeclaration" &&
+    statement.source.value === source &&
+    statement.specifiers.some((specifier) =>
+      specifier.type === "ImportSpecifier" &&
+      isIdentifier(specifier.imported, name) &&
+      isIdentifier(specifier.local, name),
+    ),
+  );
+}
+
+function catalogAppLaunch(ast, path) {
+  // Harness 0.1.5-alpha.2 / b2e3b2a012, packages/host/open-in-app/src/resolver.ts:
+  // launchDetachedApp owns user-selected GUI launches and retains each catalog
+  // adapter's visibility. Its pinned vendor source must remain pristine; forcing
+  // windowsHide would change that behavior. Minke's staging policy owns this
+  // exception: re-evaluate/remove it on the next pin or launcher-policy change.
+  // Only this argv-only, scrubbed-environment launch is exempt; every other call,
+  // including calls in the same file or package, still requires windowsHide:true.
+  if (
+    path !== "node_modules/@deepseek-ai/dsh-host-open-in-app/lib/index.js" &&
+    path !== "node_modules/@deepseek-ai/dsh-host-open-in-app/lib/types/resolver.js"
+  ) return undefined;
+  if (
+    !hasNamedImport(ast, "node:child_process", "spawn") ||
+    !hasNamedImport(ast, "@deepseek-ai/dsh-subprocess", "scrubbedParentEnv")
+  ) return undefined;
+  const owners = ast.body.flatMap((statement) => {
+    const declaration = statement.type === "ExportNamedDeclaration"
+      ? statement.declaration
+      : statement;
+    return declaration?.type === "VariableDeclaration" && declaration.kind === "const"
+      ? declaration.declarations.filter((entry) => isIdentifier(entry.id, "launchDetachedApp"))
+      : [];
+  });
+  if (owners.length !== 1) return undefined;
+  const owner = owners[0].init;
+  if (
+    owner?.type !== "ArrowFunctionExpression" ||
+    owner.async ||
+    owner.params.length !== 3 ||
+    !["command", "args", "options"].every((name, index) => isIdentifier(owner.params[index], name))
+  ) return undefined;
+  const promise = owner.body;
+  const executor = promise.arguments?.[0];
+  if (
+    promise.type !== "NewExpression" ||
+    !isIdentifier(promise.callee, "Promise") ||
+    promise.arguments.length !== 1 ||
+    executor?.type !== "ArrowFunctionExpression" ||
+    executor.async ||
+    executor.params.length !== 2 ||
+    !["resolve", "reject"].every((name, index) => isIdentifier(executor.params[index], name)) ||
+    executor.body.type !== "BlockStatement"
+  ) return undefined;
+  const declaration = executor.body.body[0];
+  if (
+    declaration?.type !== "VariableDeclaration" ||
+    declaration.kind !== "const" ||
+    declaration.declarations.length !== 1 ||
+    !isIdentifier(declaration.declarations[0].id, "child")
+  ) return undefined;
+  const call = declaration.declarations[0].init;
+  if (
+    call?.type !== "CallExpression" ||
+    call.optional ||
+    !isIdentifier(call.callee, "spawn") ||
+    call.arguments.length !== 3 ||
+    !isIdentifier(call.arguments[0], "command")
+  ) return undefined;
+  const argv = call.arguments[1];
+  const options = call.arguments[2];
+  if (
+    argv.type !== "ArrayExpression" ||
+    argv.elements.length !== 1 ||
+    argv.elements[0]?.type !== "SpreadElement" ||
+    !isIdentifier(argv.elements[0].argument, "args") ||
+    options.type !== "ObjectExpression" ||
+    options.properties.length !== 4 ||
+    options.properties.some((property) =>
+      property.type !== "Property" || property.computed || property.method || property.kind !== "init",
+    ) ||
+    !["detached", "stdio", "windowsHide", "env"].every((name) => namedObjectProperties(options, name).length === 1) ||
+    literalPropertyValue(options, "detached") !== true ||
+    literalPropertyValue(options, "stdio") !== "ignore" ||
+    !isOptionsMember(objectProperty(options, "windowsHide").value, "windowsHide")
+  ) return undefined;
+  const env = objectProperty(options, "env").value;
+  const parentEnv = env.properties?.[0];
+  const explicitEnv = env.properties?.[1];
+  if (
+    env.type !== "ObjectExpression" ||
+    env.properties.length !== 2 ||
+    parentEnv.type !== "SpreadElement" ||
+    parentEnv.argument.type !== "CallExpression" ||
+    parentEnv.argument.optional ||
+    !isIdentifier(parentEnv.argument.callee, "scrubbedParentEnv") ||
+    parentEnv.argument.arguments.length !== 0 ||
+    explicitEnv.type !== "SpreadElement" ||
+    !isOptionsMember(explicitEnv.argument, "env")
+  ) return undefined;
+  return call;
 }
 
 function runtimePath(runtimeRoot, path) {
@@ -249,8 +368,11 @@ function isRestrictedWindowsProcessPath(path) {
 
 function collectRestrictedLaunches(ast) {
   const createProcessAsUserCalls = [];
+  const createProcessCalls = [];
   const delegatedLaunchCalls = [];
   const delegateDefinitions = [];
+  const jobLaunchCalls = [];
+  const jobDefinitions = [];
   const startupInfoCalls = [];
   walk(ast, (node) => {
     if (
@@ -258,6 +380,13 @@ function collectRestrictedLaunches(ast) {
       node.id?.name === "createRestrictedProcess"
     ) {
       delegateDefinitions.push(node);
+      return;
+    }
+    if (
+      node.type === "FunctionDeclaration" &&
+      node.id?.name === "spawnJobProcess"
+    ) {
+      jobDefinitions.push(node);
       return;
     }
     if (node.type !== "CallExpression") return;
@@ -268,10 +397,22 @@ function collectRestrictedLaunches(ast) {
       createProcessAsUserCalls.push(node);
     }
     if (
+      node.callee.type === "MemberExpression" &&
+      staticPropertyName(node.callee) === "createProcessW"
+    ) {
+      createProcessCalls.push(node);
+    }
+    if (
       node.callee.type === "Identifier" &&
       node.callee.name === "createRestrictedProcess"
     ) {
       delegatedLaunchCalls.push(node);
+    }
+    if (
+      node.callee.type === "Identifier" &&
+      node.callee.name === "spawnJobProcess"
+    ) {
+      jobLaunchCalls.push(node);
     }
     if (
       node.callee.type === "Identifier" &&
@@ -282,14 +423,17 @@ function collectRestrictedLaunches(ast) {
   });
   return {
     createProcessAsUserCalls,
+    createProcessCalls,
     delegatedLaunchCalls,
     delegateDefinitions,
+    jobLaunchCalls,
+    jobDefinitions,
     startupInfoCalls,
   };
 }
 
 function callArgumentIdentifier(call, index) {
-  const argument = call.arguments[index];
+  const argument = call?.arguments[index];
   return argument?.type === "Identifier"
     ? argument.name
     : undefined;
@@ -300,12 +444,82 @@ function sameNames(left, right) {
     [...right].sort().join("\0");
 }
 
-function restrictedLaunchShapeError(path, restricted) {
-  const directCount = restricted.createProcessAsUserCalls.length;
-  const delegatedCount = restricted.delegatedLaunchCalls.length;
-  const startupCount = restricted.startupInfoCalls.length;
+function containsNode(owner, node) {
+  return node.start >= owner.start && node.end <= owner.end;
+}
 
-  if (delegatedCount === 0) {
+function jobLaunchShape(path, restricted) {
+  const { jobDefinitions, jobLaunchCalls, createProcessCalls } = restricted;
+  const callbackLaunches = new Set();
+  if (jobDefinitions.length === 0 && jobLaunchCalls.length === 0) {
+    return createProcessCalls.length === 0
+      ? { callbackLaunches }
+      : { error: `${path} CreateProcessW must receive STARTUPINFOW through spawnJobProcess` };
+  }
+  if (jobDefinitions.length !== 1 || jobLaunchCalls.length === 0) {
+    return { error: `${path} must declare one spawnJobProcess owner with at least one launch` };
+  }
+  const owner = jobDefinitions[0];
+  const startupCalls = restricted.startupInfoCalls.filter((call) =>
+    containsNode(owner, call),
+  );
+  const createParameter = owner.params[4];
+  const createCalls = [];
+  walk(owner.body, (node) => {
+    if (
+      node.type === "CallExpression" &&
+      node.callee.type === "Identifier" &&
+      node.callee.name === createParameter?.name
+    ) {
+      createCalls.push(node);
+    }
+  });
+  const startupName = callArgumentIdentifier(startupCalls[0], 0);
+  if (
+    startupCalls.length !== 1 ||
+    startupName === undefined ||
+    createParameter?.type !== "Identifier" ||
+    createCalls.length !== 1 ||
+    callArgumentIdentifier(createCalls[0], 0) !== startupName
+  ) {
+    return { error: `${path} spawnJobProcess must pass its encoded STARTUPINFOW directly to its create callback` };
+  }
+  for (const call of jobLaunchCalls) {
+    const callback = call.arguments[4];
+    const parameter = callback?.params?.[0];
+    const launch = callback?.body;
+    const restrictedLaunch = restricted.delegatedLaunchCalls.includes(launch);
+    const ordinaryLaunch = createProcessCalls.includes(launch);
+    if (
+      callback?.type !== "ArrowFunctionExpression" ||
+      parameter?.type !== "Identifier" ||
+      (!restrictedLaunch && !ordinaryLaunch) ||
+      callArgumentIdentifier(launch, restrictedLaunch ? 4 : 8) !== parameter.name
+    ) {
+      return { error: `${path} spawnJobProcess callback must pass its STARTUPINFOW directly to createRestrictedProcess or CreateProcessW` };
+    }
+    callbackLaunches.add(launch);
+  }
+  if (createProcessCalls.some((call) => !callbackLaunches.has(call))) {
+    return { error: `${path} CreateProcessW must receive STARTUPINFOW through spawnJobProcess` };
+  }
+  return { callbackLaunches, startupCall: startupCalls[0] };
+}
+
+function restrictedLaunchShapeError(path, restricted) {
+  const jobs = jobLaunchShape(path, restricted);
+  if (jobs.error !== undefined) return jobs.error;
+  const startupCalls = restricted.startupInfoCalls.filter(
+    (call) => call !== jobs.startupCall,
+  );
+  const delegatedCalls = restricted.delegatedLaunchCalls.filter(
+    (call) => !jobs.callbackLaunches.has(call),
+  );
+  const directCount = restricted.createProcessAsUserCalls.length;
+  const delegatedCount = delegatedCalls.length;
+  const startupCount = startupCalls.length;
+
+  if (restricted.delegatedLaunchCalls.length === 0) {
     if (restricted.delegateDefinitions.length !== 0) {
       return `${path} declares createRestrictedProcess but has no delegated launch calls`;
     }
@@ -345,10 +559,10 @@ function restrictedLaunchShapeError(path, restricted) {
     return `${path} createRestrictedProcess must pass its STARTUPINFOW parameter directly to CreateProcessAsUserW`;
   }
 
-  const configuredStartupInfos = restricted.startupInfoCalls.map(
+  const configuredStartupInfos = startupCalls.map(
     (call) => callArgumentIdentifier(call, 0),
   );
-  const delegatedStartupInfos = restricted.delegatedLaunchCalls.map(
+  const delegatedStartupInfos = delegatedCalls.map(
     (call) => callArgumentIdentifier(call, 4),
   );
   if (
@@ -364,9 +578,13 @@ function restrictedLaunchShapeError(path, restricted) {
 function assertRestrictedLaunchShape(path, restricted) {
   const error = restrictedLaunchShapeError(path, restricted);
   if (error !== undefined) throw new Error(error);
-  return restricted.delegatedLaunchCalls.length === 0
+  return (restricted.delegatedLaunchCalls.length === 0
     ? restricted.createProcessAsUserCalls.length
-    : restricted.delegatedLaunchCalls.length;
+    : restricted.delegatedLaunchCalls.length) + restricted.createProcessCalls.length;
+}
+
+function hasNativeLaunchShape(restricted) {
+  return Object.values(restricted).some((nodes) => nodes.length > 0);
 }
 
 function propertyLayoutAfter(source, property, nextProperty) {
@@ -470,8 +688,8 @@ function applySourceEdits(source, edits) {
 }
 
 /**
- * Harden every restricted-token process launch in the deployed Windows ACL
- * package. The package emits platform-dependent bundle hashes, so this
+ * Hide restricted-token and current-token launches in the deployed Windows
+ * process packages. They emit platform-dependent bundle hashes, so this
  * transform intentionally discovers actual JavaScript artifacts instead of
  * pinning generated filenames in a static patch.
  */
@@ -491,12 +709,7 @@ export async function hardenHarnessWindowsRestrictedLaunches(runtimeRoot) {
     const relativePath = runtimePath(runtimeRoot, path);
     const ast = parseRuntimeJavaScript(source, relativePath);
     const restricted = collectRestrictedLaunches(ast);
-    if (
-      restricted.createProcessAsUserCalls.length === 0 &&
-      restricted.delegatedLaunchCalls.length === 0 &&
-      restricted.delegateDefinitions.length === 0 &&
-      restricted.startupInfoCalls.length === 0
-    ) {
+    if (!hasNativeLaunchShape(restricted)) {
       continue;
     }
     const fileLaunches =
@@ -548,14 +761,10 @@ export async function inspectHarnessRuntimeProcessPolicy(runtimeRoot) {
     const source = await readFile(path, "utf8");
     const ast = parseRuntimeJavaScript(source, runtimePath(runtimeRoot, path));
     const bindings = collectChildProcessBindings(ast);
+    const catalogLaunch = catalogAppLaunch(ast, runtimePath(runtimeRoot, path));
     const restricted = isRestrictedWindowsProcessPath(path)
       ? collectRestrictedLaunches(ast)
-      : {
-          createProcessAsUserCalls: [],
-          delegatedLaunchCalls: [],
-          delegateDefinitions: [],
-          startupInfoCalls: [],
-        };
+      : undefined;
 
     walk(ast, (node) => {
       if (node.type !== "CallExpression") return;
@@ -567,7 +776,7 @@ export async function inspectHarnessRuntimeProcessPolicy(runtimeRoot) {
           line: node.loc.start.line,
         };
         launches.push(launch);
-        if (!hasExplicitHiddenWindow(node)) {
+        if (!hasExplicitHiddenWindow(node) && node !== catalogLaunch) {
           violations.push(
             `${launch.path}:${String(launch.line)} ${method}() must set windowsHide: true`,
           );
@@ -575,12 +784,7 @@ export async function inspectHarnessRuntimeProcessPolicy(runtimeRoot) {
       }
     });
 
-    if (
-      restricted.createProcessAsUserCalls.length === 0 &&
-      restricted.delegatedLaunchCalls.length === 0 &&
-      restricted.delegateDefinitions.length === 0 &&
-      restricted.startupInfoCalls.length === 0
-    ) {
+    if (restricted === undefined || !hasNativeLaunchShape(restricted)) {
       continue;
     }
     const shapeError = restrictedLaunchShapeError(

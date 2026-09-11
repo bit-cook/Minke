@@ -1,29 +1,52 @@
+diff --git a/node_modules/@deepseek-ai/dsh/lib/plugin-Ddi42qoW.js b/node_modules/@deepseek-ai/dsh/lib/plugin-Ddi42qoW.js
+index bf2655e..d267f22 100644
+--- a/node_modules/@deepseek-ai/dsh/lib/plugin-Ddi42qoW.js
++++ b/node_modules/@deepseek-ai/dsh/lib/plugin-Ddi42qoW.js
+@@ -111,3 +111,4 @@ function runPlugin(profile, args) {
+ 		stdio: "inherit",
+-		shell: process.platform === "win32"
++		shell: process.platform === "win32",
++		windowsHide: true
+ 	});
+diff --git a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
+index acf49ea..071a07b 100644
+--- a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
++++ b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
+@@ -120,2 +120,3 @@ export function runPlugin(profile, args) {
+         shell: process.platform === 'win32',
++        windowsHide: true,
+     });
+diff --git a/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js b/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
+index 981b3e3..4485acd 100644
+--- a/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
+@@ -845,3 +845,4 @@ function validatePythonBin(bin) {
+ 			killSignal: "SIGKILL",
+-			maxBuffer: 1024
++			maxBuffer: 1024,
++			windowsHide: true
+ 		}).trim();
+@@ -1199,2 +1200,3 @@ var PythonCodeRuntime = class extends CodeRuntime {
+ 				detached: true,
++				windowsHide: true,
+ 				stdio: [
 diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
+index 70a498a..89f580e 100644
 --- a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
-@@ -107,7 +107,8 @@
- 		"true"
- 	], {
+@@ -109,3 +109,4 @@ function defaultProbeBwrap(timeoutMs) {
  		timeout: timeoutMs,
 -		stdio: "ignore"
 +		stdio: "ignore",
 +		windowsHide: true
  	}).status === 0;
- }
- /**
-@@ -129,7 +130,8 @@
- 		"true"
- 	], {
+@@ -131,3 +132,4 @@ function defaultProbeSeatbelt(seatbeltExec, timeoutMs) {
  		timeout: timeoutMs,
 -		stdio: "ignore"
 +		stdio: "ignore",
 +		windowsHide: true
  	}).status === 0;
- }
- /**
-@@ -142,7 +144,25 @@
- function defaultProbeWindowsAcl(runnerInvocation, timeoutMs) {
- 	const program = runnerInvocation[0];
+@@ -144,3 +146,21 @@ function defaultProbeWindowsAcl(runnerInvocation, timeoutMs) {
  	if (program === void 0) return false;
 +	const bootstrap = process.env.MINKE_NODE_BOOTSTRAP;
 +	const embeddedExecutable = process.env.MINKE_NODE_EXECUTABLE;
@@ -45,112 +68,89 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_mod
  	return spawnSync(program, [
 +		...bootstrapArgs,
  		...runnerInvocation.slice(1),
- 		"--workspace",
- 		tmpdir(),
-@@ -157,7 +177,9 @@
- 		"0"
- 	], {
+@@ -159,3 +179,5 @@ function defaultProbeWindowsAcl(runnerInvocation, timeoutMs) {
  		timeout: timeoutMs,
 -		stdio: "ignore"
 +		stdio: "ignore",
 +		env: environment,
 +		windowsHide: true
  	}).status === 0;
- }
- /**
 diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
+index 8e1b9f9..8b14530 100644
 --- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
-@@ -274,7 +274,7 @@
- 	open: (path) => openSync(path, "r"),
- 	read: (fd, buffer, length, position) => readSync(fd, buffer, 0, length, position),
+@@ -34,3 +34,4 @@ function querySystemctl(command, args) {
+ 			env: managerEnvironment(),
+-			timeout: SYSTEMCTL_TIMEOUT_MS
++			timeout: SYSTEMCTL_TIMEOUT_MS,
++			windowsHide: true
+ 		}, (error, stdout, stderr) => {
+@@ -90,3 +91,4 @@ function probeLinuxScope(internals = {}) {
+ 		stdio: "ignore",
+-		timeout: SYSTEMCTL_TIMEOUT_MS
++		timeout: SYSTEMCTL_TIMEOUT_MS,
++		windowsHide: true
+ 	});
+@@ -108,3 +110,4 @@ function probeLinuxManager(internals = {}) {
+ 		stdio: "ignore",
+-		timeout: SYSTEMCTL_TIMEOUT_MS
++		timeout: SYSTEMCTL_TIMEOUT_MS,
++		windowsHide: true
+ 	});
+@@ -157,3 +160,4 @@ var SystemdScopeOwner = class {
+ 			env: managerEnvironment(),
+-			timeout: SYSTEMCTL_TIMEOUT_MS
++			timeout: SYSTEMCTL_TIMEOUT_MS,
++			windowsHide: true
+ 		});
+@@ -185,3 +189,4 @@ var SystemdScopeOwner = class {
+ 				stdio: "ignore",
+-				timeout: SYSTEMCTL_TIMEOUT_MS
++				timeout: SYSTEMCTL_TIMEOUT_MS,
++				windowsHide: true
+ 			});
+@@ -398,2 +403,3 @@ function launchLinuxScope(spec, targetEnv, internals = {}) {
+ 			stdio: runnerStdio(spec, false),
++			windowsHide: true,
+ 			detached: true
+@@ -505,2 +511,3 @@ function launchWindowsJob(spec, targetEnv, internals = {}) {
+ 			env: runnerEnvironment(WINDOWS_RUNNER_SELECTION, invocation),
++			windowsHide: true,
+ 			stdio: runnerStdio(spec, true, ignoredStdinFd ?? "pipe")
+diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-COYGu0Dl.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-COYGu0Dl.js
+index fbd9735..06e7882 100644
+--- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-COYGu0Dl.js
++++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-COYGu0Dl.js
+@@ -303,3 +303,3 @@ const DEFAULT_INTERNALS = {
  	close: closeSync,
 -	exec: (file, args) => execFileSync(file, args, { encoding: "utf8" }),
 +	exec: (file, args) => execFileSync(file, args, { encoding: "utf8", windowsHide: true }),
  	kill: (pid, signal) => process.kill(pid, signal)
- };
- /**
-@@ -871,7 +871,7 @@
- 			errMode === "inherit" ? "inherit" : "pipe"
- 		],
+@@ -1145,3 +1145,3 @@ function spawnSubprocess(spec, internals = {}) {
  		detached: platform !== "win32",
 -		windowsHide: platform === "win32"
 +		windowsHide: true
  	});
- 	const collectStream = (mode, stream, label) => {
- 		if (!isCollect(mode) || stream === null) return void 0;
-diff --git a/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js b/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
---- a/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
-+++ b/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
-@@ -843,7 +843,8 @@
- 			env: pythonEnvironment(),
- 			timeout: PYTHON_PROBE_TIMEOUT_MS,
- 			killSignal: "SIGKILL",
--			maxBuffer: 1024
-+			maxBuffer: 1024,
-+			windowsHide: true
- 		}).trim();
- 	} catch (error) {
- 		throw new Error(`dsh-code-runtime-python: config.pythonBin ${JSON.stringify(bin)} failed the CPython version probe: ${messageOf(error)}`);
-@@ -1197,6 +1198,7 @@
- 			], {
- 				env: pythonEnvironment(),
- 				detached: true,
-+				windowsHide: true,
- 				stdio: [
- 					"pipe",
- 					"pipe",
 diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
+index 224e61e..f1a7805 100644
 --- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
-@@ -130,12 +130,13 @@
- 		"--",
- 		url
+@@ -124,3 +124,3 @@ function spawnBrowserLauncher(url) {
  	], {
 -		env: scrubbedParentEnv(),
 +		env: browserWorkerEnvironment(),
  		stdio: [
- 			"ignore",
- 			"inherit",
+@@ -129,3 +129,4 @@ function spawnBrowserLauncher(url) {
  			"pipe"
 -		]
 +		],
 +		windowsHide: true
  	});
- }
- /** Hand one URL to the operating system's default browser. */
-diff --git a/node_modules/@deepseek-ai/dsh/lib/plugin-WDISvmGc.js b/node_modules/@deepseek-ai/dsh/lib/plugin-WDISvmGc.js
---- a/node_modules/@deepseek-ai/dsh/lib/plugin-WDISvmGc.js
-+++ b/node_modules/@deepseek-ai/dsh/lib/plugin-WDISvmGc.js
-@@ -109,7 +109,8 @@
- 	const result = spawnSync("pnpm", args.map((argument) => anchorPathSpec(argument, process.cwd())), {
- 		cwd: dir,
- 		stdio: "inherit",
--		shell: process.platform === "win32"
-+		shell: process.platform === "win32",
-+		windowsHide: true
- 	});
- 	if (result.error !== void 0) {
- 		if (result.error.code === "ENOENT") {
-diff --git a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
---- a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
-+++ b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
-@@ -118,6 +118,7 @@
-         cwd: dir,
-         stdio: 'inherit',
-         shell: process.platform === 'win32',
-+        windowsHide: true,
-     });
-     if (result.error !== undefined) {
-         const code = result.error.code;
-diff --git a/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js b/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
---- a/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
-+++ b/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
-@@ -91,6 +91,7 @@
-         timeout: options.timeoutMs ?? 2000,
-         encoding: 'utf8',
+diff --git a/node_modules/@deepseek-ai/node-addon-system/lib/index.js b/node_modules/@deepseek-ai/node-addon-system/lib/index.js
+index db7e659..39fc9d7 100644
+--- a/node_modules/@deepseek-ai/node-addon-system/lib/index.js
++++ b/node_modules/@deepseek-ai/node-addon-system/lib/index.js
+@@ -93,2 +93,3 @@ export function probe(launcher = launcherPath(), options = {}) {
          stdio: ['ignore', 'pipe', 'ignore'],
 +        windowsHide: true,
      });
-     if (result.status !== 0)
-         return 'unusable';

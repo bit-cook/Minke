@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -22,6 +24,8 @@ import {
 } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
+import { runInNewContext } from "node:vm";
 import {
   runtimeEntrySource,
 } from "../scripts/harness/runtime-entry.mjs";
@@ -34,6 +38,7 @@ import {
 import {
   applyHarnessRuntimePatches,
   resolveHarnessRuntimePatches,
+  verifyHarnessRuntimePatchesApplied,
 } from "../scripts/harness/runtime-patches.mjs";
 import {
   embeddedNodeCapabilitiesEnvironment,
@@ -49,7 +54,9 @@ const projectRoot = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
 );
 
-async function loadPatchedHarnessScrubbedParentEnv(runtimeRoot) {
+const subprocessRunnerChunk = "runner-launch-COYGu0Dl.js";
+
+async function preparePatchedHarnessEnvironment(runtimeRoot) {
   await writeFile(
     join(runtimeRoot, "package.json"),
     '{"private":true,"type":"module"}\n',
@@ -68,6 +75,10 @@ async function loadPatchedHarnessScrubbedParentEnv(runtimeRoot) {
       "vendor/deepseek-harness/packages/subprocess/subprocess-local/lib/index.js",
     ],
     [
+      `node_modules/@deepseek-ai/dsh-subprocess-local/lib/${subprocessRunnerChunk}`,
+      `vendor/deepseek-harness/packages/subprocess/subprocess-local/lib/${subprocessRunnerChunk}`,
+    ],
+    [
       "node_modules/@deepseek-ai/dsh-web-app/lib/index.js",
       "vendor/deepseek-harness/packages/bundle/web-app/lib/index.js",
     ],
@@ -76,15 +87,34 @@ async function loadPatchedHarnessScrubbedParentEnv(runtimeRoot) {
       "vendor/deepseek-harness/packages/sandbox/sandbox-windows-acl/lib/runner.js",
     ],
   ]);
+  for (const [packageName, sourceRoot, files] of [
+    ["dsh-sandbox-local", "packages/sandbox/sandbox-local", ["lib/index.js"]],
+    ["dsh-experimental-code-runtime-python", "packages/experimental/code-runtime-python", ["lib/index.js"]],
+    ["dsh", "apps/cli", ["lib/plugin-Ddi42qoW.js", "lib/types/plugin.js"]],
+    ["node-addon-system", "native/system/packages/entry", ["lib/index.js"]],
+  ]) {
+    for (const file of files) {
+      targets.set(
+        `node_modules/@deepseek-ai/${packageName}/${file}`,
+        `vendor/deepseek-harness/${sourceRoot}/${file}`,
+      );
+    }
+  }
   for (const [target, source] of targets) {
     const targetPath = join(runtimeRoot, ...target.split("/"));
     await mkdir(resolve(targetPath, ".."), { recursive: true });
     await copyFile(resolve(projectRoot, source), targetPath);
   }
   const patches = await resolveHarnessRuntimePatches(projectRoot, [
+    "patches/deepseek-harness/windows-background-processes.patch",
     "patches/deepseek-harness/process-environment-boundaries.patch",
   ]);
   await applyHarnessRuntimePatches(runtimeRoot, patches);
+  await verifyHarnessRuntimePatchesApplied(runtimeRoot, patches);
+}
+
+async function loadPatchedHarnessScrubbedParentEnv(runtimeRoot) {
+  await preparePatchedHarnessEnvironment(runtimeRoot);
 
   // Execute the real proxy overlay alongside the patched artifact; only the
   // unrelated Cordis base classes need a stub in this isolated fixture.
@@ -175,7 +205,7 @@ function environmentValue(environment, name) {
   )?.[1];
 }
 
-test("the staged entry consumes Node bootstrap controls before loading the CLI", async () => {
+test("the staged entry runs the imported CLI after consuming Node bootstrap controls", async () => {
   await withTemporaryDirectory(async (root) => {
     const cliRoot = join(root, "node_modules", "@fixture", "cli");
     await mkdir(join(root, "bin"), { recursive: true });
@@ -194,6 +224,7 @@ test("the staged entry consumes Node bootstrap controls before loading the CLI",
     await writeFile(
       join(cliRoot, "lib", "bin.js"),
       [
+        "export async function runCli() {",
         "const controls = new Set([",
         '  "ELECTRON_RUN_AS_NODE",',
         '  "NODE_OPTIONS",',
@@ -208,6 +239,7 @@ test("the staged entry consumes Node bootstrap controls before loading the CLI",
         "  node: process.env.MINKE_NODE_EXECUTABLE,",
         "  pnpm: process.env.MINKE_PNPM_ENTRY,",
         "}));",
+        "}",
         "",
       ].join("\n"),
     );
@@ -307,6 +339,184 @@ test("the applied Harness patch scrubs ambient Node launch controls", async () =
     } finally {
       for (const name of names) {
         const value = previous[name];
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+});
+
+async function withPatchedSubprocessLaunches(runtimeRoot, callback) {
+  await preparePatchedHarnessEnvironment(runtimeRoot);
+  const localRoot = join(runtimeRoot, "node_modules/@deepseek-ai/dsh-subprocess-local");
+  const subprocessUrl = pathToFileURL(join(
+    runtimeRoot, "node_modules/@deepseek-ai/dsh-subprocess/lib/index.js",
+  )).href;
+  const stub = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
+  const launchKey = `minke-launch-${runtimeRoot}`;
+  const childProcessStub = stub([
+    'export { execFile, execFileSync, spawnSync } from "node:child_process";',
+    `export const spawn = (...args) => globalThis[${JSON.stringify(launchKey)}](...args);`,
+  ].join("\n"));
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      let url;
+      if (specifier === "@deepseek-ai/cordis") {
+        url = stub("export class Context {}; export class Service {};");
+      } else if (specifier === "@deepseek-ai/dsh-http-proxy") {
+        url = pathToFileURL(join(projectRoot,
+          "vendor/deepseek-harness/packages/util/http-proxy/lib/index.js")).href;
+      } else if (specifier === "@deepseek-ai/dsh-subprocess") {
+        url = subprocessUrl;
+      } else if (specifier === "@deepseek-ai/dsh-timeout") {
+        url = stub("export const MAX_TIMER_DELAY_MS = 2147483647;");
+      } else if (specifier === "koffi") {
+        url = stub("export default { pointer: (type) => type };");
+      } else if (specifier === "node-pty") {
+        url = stub(`export const spawn = (...args) => globalThis[${JSON.stringify(launchKey)}](...args);`);
+      } else if (specifier === "@deepseek-ai/dsh-win32-process") {
+        url = stub("export function loadWin32ProcessBindings() {}; export function probeCurrentTokenJobSupport() {};");
+      } else if (specifier === "@deepseek-ai/dsh-subprocess-local/runner") {
+        url = pathToFileURL(join(localRoot, "lib/runner.js")).href;
+      } else if (specifier === "node:child_process" && context.parentURL !== childProcessStub) {
+        url = childProcessStub;
+      }
+      return url === undefined
+        ? nextResolve(specifier, context)
+        : { shortCircuit: true, url };
+    },
+  });
+  try {
+    const { LocalSubprocessRuntime } = await import(
+      pathToFileURL(join(localRoot, "lib/index.js")).href
+    );
+    const runtime = Object.create(LocalSubprocessRuntime.prototype);
+    runtime.internals = { spillDir: runtimeRoot };
+    runtime.live = new Set();
+    runtime.terminalInspector = {};
+    await callback(runtime, (capture) => {
+      globalThis[launchKey] = capture;
+    });
+  } finally {
+    delete globalThis[launchKey];
+    hooks.deregister();
+  }
+}
+
+test("native subprocess runners preserve embedded Node launch boundaries", async () => {
+  await withTemporaryDirectory(async (runtimeRoot) => {
+    const bootstrap = join(runtimeRoot, "node-environment-bootstrap.cjs");
+    const executable = join(runtimeRoot, "Minke Electron");
+    const previous = {
+      MINKE_NODE_EXECUTABLE: process.env.MINKE_NODE_EXECUTABLE,
+      MINKE_NODE_BOOTSTRAP: process.env.MINKE_NODE_BOOTSTRAP,
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+    };
+    Object.assign(process.env, {
+      MINKE_NODE_EXECUTABLE: executable,
+      MINKE_NODE_BOOTSTRAP: bootstrap,
+      NODE_OPTIONS: "--require /ambient.cjs",
+    });
+    try {
+      await withPatchedSubprocessLaunches(runtimeRoot, async (runtime, capture) => {
+        const spec = {
+          argv: [executable, "target.mjs"],
+          cwd: runtimeRoot,
+          graceMs: 100,
+          stdio: { stdin: "ignore", stdout: "inherit", stderr: "inherit" },
+        };
+        for (const mode of ["windows-job", "linux-scope"]) {
+          runtime.selectContainmentMode = () => mode;
+          let launch;
+          let request;
+          const child = new EventEmitter();
+          child.stdio = Array(7).fill(null);
+          child.connected = true;
+          child.send = (value, done) => { request = value; done(null); };
+          child.kill = () => true;
+          const captured = new Error("captured Linux launch");
+          const childProcess = { spawn: (command, args, options) => {
+            launch = { command, args: [...args], options };
+            if (mode === "linux-scope") {
+              request = JSON.parse(readFileSync(options.env.DSH_SUBPROCESS_RUNNER, "utf8"));
+              throw captured;
+            }
+            return child;
+          } };
+          runInNewContext(runtimeAdapterSources()["node-environment-bootstrap.cjs"], {
+            __filename: bootstrap,
+            process: {
+              platform: process.platform,
+              execPath: process.execPath,
+              env: { ...process.env },
+              execArgv: [],
+            },
+            require: (specifier) => ({
+              "node:child_process": childProcess,
+              "node:module": { syncBuiltinESMExports() {} },
+              "node:util": { promisify },
+            })[specifier],
+          });
+          capture(childProcess.spawn);
+          if (mode === "windows-job") {
+            const handle = runtime.spawn(spec);
+            child.emit("spawn");
+            child.emit("message", { type: "target-exit", exitCode: 0 });
+            child.emit("close", 0, null);
+            assert.equal((await handle.done).exitCode, 0);
+            await handle.waitForExit();
+            assert.equal(launch.command, executable);
+            assert.deepEqual(launch.args.slice(0, 2), ["--require", bootstrap]);
+            assert.equal(launch.options.env.ELECTRON_RUN_AS_NODE, "1");
+            assert.equal(launch.options.env.MINKE_NODE_BOOTSTRAP, bootstrap);
+          } else {
+            assert.throws(() => runtime.spawn(spec), (error) => error === captured);
+            assert.equal(launch.command, "systemd-run");
+            assert.equal(hasEnvironmentName(launch.options.env, "ELECTRON_RUN_AS_NODE"), false);
+            assert.equal(hasEnvironmentName(launch.options.env, "MINKE_NODE_BOOTSTRAP"), false);
+            const scoped = launch.args.slice(launch.args.indexOf("--") + 1);
+            assert.deepEqual(scoped.slice(0, 3), [
+              "/usr/bin/env", "ELECTRON_RUN_AS_NODE=1", `MINKE_NODE_BOOTSTRAP=${bootstrap}`,
+            ]);
+          }
+          assert.equal(request.env.ELECTRON_RUN_AS_NODE, "1");
+          assert.equal(request.env.MINKE_NODE_BOOTSTRAP, bootstrap);
+          assert.equal(hasEnvironmentName(request.env, "NODE_OPTIONS"), false);
+          assert.deepEqual(launch.args.slice(-5), [
+            "--", executable, "--require", bootstrap, "target.mjs",
+          ]);
+          const invocationStart = launch.args.indexOf(executable);
+          assert.deepEqual(launch.args.slice(invocationStart + 1, invocationStart + 3), [
+            "--require", bootstrap,
+          ]);
+        }
+        for (const mode of ["fallback", "linux-scope"]) {
+          runtime.selectContainmentMode = () => mode;
+          const captured = new Error("captured terminal launch");
+          let launch;
+          let targetEnvironment;
+          capture((command, args, options) => {
+            launch = { command, args: [...args], options };
+            targetEnvironment = mode === "linux-scope"
+              ? JSON.parse(readFileSync(options.env.DSH_SUBPROCESS_RUNNER, "utf8")).env
+              : options.env;
+            throw captured;
+          });
+          await assert.rejects(runtime.spawnTerminal({ ...spec, rows: 24, cols: 80 }),
+            (error) => error === captured);
+          assert.equal(targetEnvironment.ELECTRON_RUN_AS_NODE, "1");
+          assert.equal(targetEnvironment.MINKE_NODE_BOOTSTRAP, bootstrap);
+          assert.deepEqual(launch.args.slice(-3), ["--require", bootstrap, "target.mjs"]);
+          if (mode === "linux-scope") {
+            assert.equal(launch.command, "systemd-run");
+            assert.equal(hasEnvironmentName(launch.options.env, "ELECTRON_RUN_AS_NODE"), false);
+          } else {
+            assert.equal(launch.command, executable);
+          }
+        }
+      });
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
       }
@@ -854,6 +1064,8 @@ test("every process.execPath production seam remains classified", async () => {
   }
   const upstreamProcessExecPathSeams = {
     buildTimeComposition: [
+      "vendor/deepseek-harness/apps/desktop/scripts/dev.ts",
+      "vendor/deepseek-harness/apps/desktop/scripts/package-target.ts",
       "vendor/deepseek-harness/packages/experimental/webworker-packer/src/repository.ts",
     ],
     executableSidecarResolution: [
@@ -869,6 +1081,7 @@ test("every process.execPath production seam remains classified", async () => {
       "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
       "vendor/deepseek-harness/packages/sandbox/sandbox-local/src/index.ts",
       "vendor/deepseek-harness/packages/subagent/subagent-codex/src/run.ts",
+      "vendor/deepseek-harness/packages/subprocess/subprocess-local/src/runner-launch.ts",
     ],
   };
   assert.deepEqual(
@@ -927,6 +1140,7 @@ test("every process.execPath production seam remains classified", async () => {
   }
   assert.deepEqual(sharedScrubOwners.sort(), [
     "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
+    "vendor/deepseek-harness/packages/host/open-in-app/src/resolver.ts",
     "vendor/deepseek-harness/packages/mcp/mcp-client/src/transport.ts",
     "vendor/deepseek-harness/packages/sdk/client/src/types.ts",
     "vendor/deepseek-harness/packages/subagent/subagent-claude-code/src/process.ts",
@@ -1013,11 +1227,12 @@ test("every process.execPath production seam remains classified", async () => {
     resolve(projectRoot),
     [environmentPatchPath],
   );
-  assert.deepEqual(environmentPatch.targets, [
-    "node_modules/@deepseek-ai/dsh-subprocess/lib/index.js",
+  assert.deepEqual([...environmentPatch.targets].sort(), [
     "node_modules/@deepseek-ai/dsh-native-command/lib/index.js",
-    "node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js",
-    "node_modules/@deepseek-ai/dsh-web-app/lib/index.js",
     "node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js",
-  ]);
+    "node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js",
+    `node_modules/@deepseek-ai/dsh-subprocess-local/lib/${subprocessRunnerChunk}`,
+    "node_modules/@deepseek-ai/dsh-subprocess/lib/index.js",
+    "node_modules/@deepseek-ai/dsh-web-app/lib/index.js",
+  ].sort());
 });

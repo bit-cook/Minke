@@ -2,12 +2,20 @@ import assert from "node:assert/strict";
 import {
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
+import { fileURLToPath } from "node:url";
+import {
+  applyHarnessRuntimePatches,
+  resolveHarnessRuntimePatches,
+  verifyHarnessRuntimePatchesApplied,
+} from "../scripts/harness/runtime-patches.mjs";
 import {
   inspectHarnessClientArtifact,
   inspectHarnessClientCryptoBoundary,
@@ -47,6 +55,47 @@ test("Host-only crypto imports are rejected from browser artifacts", () => {
       ),
     /Host-only node:crypto/u,
   );
+});
+
+test("the document-preview patch retains PDF identifiers without secure-context crypto", async () => {
+  const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+  const runtimeRoot = await mkdtemp(join(tmpdir(), "minke-preview-crypto-"));
+  const artifact = "node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js";
+  const target = join(runtimeRoot, artifact);
+  try {
+    const upstream = await readFile(join(projectRoot,
+      "vendor/deepseek-harness/packages/client/ui-sidebar-documentpreview/lib/client.js"), "utf8");
+    // The unpatched pinned artifact is the negative control for the shipped boundary.
+    assert.throws(() => inspectHarnessClientArtifact(upstream, artifact),
+      /secure-context-only crypto\.randomUUID/u);
+    await mkdir(join(target, ".."), { recursive: true });
+    await writeFile(target, upstream);
+    const patches = await resolveHarnessRuntimePatches(projectRoot, [
+      "patches/deepseek-harness/document-preview-browser-crypto.patch",
+    ]);
+    await applyHarnessRuntimePatches(runtimeRoot, patches);
+    await verifyHarnessRuntimePatchesApplied(runtimeRoot, patches);
+    const patched = await readFile(target, "utf8");
+    assert.doesNotThrow(() => inspectHarnessClientArtifact(patched, artifact));
+
+    // Exercise the pinned PDF.js helper with the Web Crypto surface available on HTTP.
+    const helper = patched.match(/function getUuid\(\) \{[\s\S]*?\n\t\t\}/u)?.[0];
+    assert.ok(helper, "the bundled PDF.js identifier helper must exist");
+    const requests = [];
+    const ids = runInNewContext(`${helper}\n[getUuid(), getUuid()]`, {
+      crypto: {
+        getRandomValues(bytes) {
+          requests.push(bytes.length);
+          return bytes.fill(requests.length);
+        },
+      },
+      bytesToString: (bytes) => String.fromCharCode(...bytes),
+    });
+    assert.deepEqual(requests, [32, 32]);
+    assert.deepEqual(Array.from(ids), ["\x01".repeat(32), "\x02".repeat(32)]);
+  } finally {
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
 });
 
 test("the staged-runtime inspection covers dynamic and static browser code", async () => {

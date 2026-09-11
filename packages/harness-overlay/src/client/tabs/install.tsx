@@ -411,13 +411,12 @@ export function installTabs(
     );
   }
 
-  const openRightHost = ctx.layout.openDetails.bind(ctx.layout);
-  const closeRightHost = ctx.layout.closeDetails.bind(ctx.layout);
-  // alpha.2 owns native Details in its top-level slot. Minke only uses the
-  // public layout transitions to reserve that track for its right Tabs.
+  const openRightHost = ctx.layout.openRightbar.bind(ctx.layout);
+  const closeRightHost = ctx.layout.closeRightbar.bind(ctx.layout);
+  // Reserve the right Tabs track through the pinned runtime's public layout transitions.
   const rightHost = new ResponsiveRightTabsHost({
-    openDetails: openRightHost,
-    closeDetails: closeRightHost,
+    openRightbar: openRightHost,
+    closeRightbar: closeRightHost,
   }, {
     // The preload bridge is the capability boundary. Do not infer the
     // runtime from user-agent or packaging metadata.

@@ -232,26 +232,40 @@ async function runPnpm(args, cwd, environment = process.env) {
   await run(invocation.command, invocation.args, cwd, environment);
 }
 
-/** Session write leases load fs-ext through Electron's Node ABI. */
-async function rebuildRuntimeNativeModules(runtimeRoot) {
-  const { rebuild } = await import("@electron/rebuild");
-  const electronVersion = require("electron/package.json").version;
-  console.log(`Rebuilding fs-ext for Electron ${electronVersion} (${process.arch})`);
-  await rebuild({
-    buildPath: runtimeRoot,
-    electronVersion,
-    arch: process.arch,
-    onlyModules: ["fs-ext"],
-    force: true,
-  });
-}
-
 /** Reject missing or incompatible Session-lock binaries before publication or reuse. */
 async function verifyRuntimeNativeModules(runtimeRoot) {
   const electronExecutable = require("electron");
+  const probe = process.platform === "win32"
+    ? 'await import("koffi");'
+    : `
+import { closeSync, mkdtempSync, openSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { tryLockExclusive } from "@deepseek-ai/node-addon-system/flock";
+const directory = mkdtempSync(join(tmpdir(), "minke-session-lease-"));
+const descriptors = [];
+try {
+  descriptors.push(openSync(join(directory, "session.lock"), "w+"));
+  descriptors.push(openSync(join(directory, "session.lock"), "r+"));
+  await tryLockExclusive(descriptors[0]);
+  let contended = false;
+  try {
+    await tryLockExclusive(descriptors[1]);
+  } catch (error) {
+    if (error.code !== "EAGAIN" && error.code !== "EWOULDBLOCK") throw error;
+    contended = true;
+  }
+  if (!contended) throw new Error("Session lease did not exclude a second writer");
+  closeSync(descriptors.shift());
+  await tryLockExclusive(descriptors[0]);
+} finally {
+  for (const descriptor of descriptors) closeSync(descriptor);
+  rmSync(directory, { recursive: true, force: true });
+}
+`;
   await run(
     electronExecutable,
-    ["--input-type=commonjs", "-e", "require('fs-ext');"],
+    ["--input-type=module", "-e", probe],
     runtimeRoot,
     embeddedNodeChildEnvironment({
       electronExecutable,
@@ -1093,7 +1107,6 @@ async function main() {
       productBundle,
     );
     await materializeSymlinks(candidateRuntimeRoot);
-    await rebuildRuntimeNativeModules(candidateRuntimeRoot);
     await applyHarnessRuntimePatches(candidateRuntimeRoot, runtimePatches);
     const processHardening =
       await hardenHarnessWindowsRestrictedLaunches(candidateRuntimeRoot);

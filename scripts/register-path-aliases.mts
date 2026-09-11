@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { transformSync } from "esbuild";
 import { resolvePathAlias } from "../config/path-aliases.mts";
 
@@ -9,15 +9,22 @@ const projectRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+const harnessSourcePrefix =
+  `${pathToFileURL(resolve(projectRoot, "vendor/deepseek-harness")).href}/`;
 
 registerHooks({
   load(url, context, nextLoad) {
-    if (url.endsWith(".tsx")) {
+    // Upstream source uses TypeScript parameter properties, which Node's
+    // strip-only loader cannot execute in source-level compatibility tests.
+    if (
+      url.endsWith(".tsx") ||
+      (url.startsWith(harnessSourcePrefix) && url.endsWith(".ts"))
+    ) {
       const filename = fileURLToPath(url);
       const result = transformSync(readFileSync(filename, "utf8"), {
         format: "esm",
         jsx: "automatic",
-        loader: "tsx",
+        loader: url.endsWith(".tsx") ? "tsx" : "ts",
         sourcefile: filename,
         sourcemap: "inline",
         target: "es2022",

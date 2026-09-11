@@ -1,9 +1,8 @@
 diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
+index cf55cf3..cfef001 100644
 --- a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
-@@ -71,10 +71,23 @@ async function closeThreadWindows(threadId) {
- * @returns the spawned child process.
- */
+@@ -74,6 +74,19 @@ async function closeThreadWindows(threadId) {
  function spawnDialogWorker(data) {
 +	const nodeExecutable = process.env.MINKE_NODE_EXECUTABLE;
 +	if (nodeExecutable === void 0 || nodeExecutable === "") throw new Error("Minke managed Node executable is unavailable");
@@ -25,49 +24,23 @@ diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/inde
 +	env.ELECTRON_RUN_AS_NODE = "1";
 +	env.DSH_DIALOG_TITLE = data.title;
  	const stdio = [
- 		"ignore",
- 		"inherit",
-@@ -82,12 +95,14 @@ function spawnDialogWorker(data) {
- 		"ipc"
- 	];
+@@ -85,3 +98,3 @@ function spawnDialogWorker(data) {
  	/* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/) */
 -	if (!import.meta.url.endsWith(".ts")) return spawn(process.execPath, [fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
 +	if (!import.meta.url.endsWith(".ts")) return spawn(nodeExecutable, ["--require", bootstrap, fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
  		env,
- 		stdio,
- 		windowsHide: true
+@@ -90,3 +103,5 @@ function spawnDialogWorker(data) {
  	});
 -	return spawn(process.execPath, [
 +	return spawn(nodeExecutable, [
 +		"--require",
 +		bootstrap,
  		"--import",
- 		import.meta.resolve("tsx/esm"),
- 		fileURLToPath(new URL("./win32-dialog-worker.ts", import.meta.url))
 diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
+index a7bb479..b22769a 100644
 --- a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
 +++ b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
-@@ -15,14 +15,9 @@
- /**
--* Read a NUL-terminated UTF-16 string at a native address. koffi's
--* `_Out_ void **` out-params surface a raw address, and
--* `koffi.decode(addr, 'str16')` would dereference it as a pointer — crash
--* on real Windows — so view the memory directly instead.
-+* Copy a NUL-terminated UTF-16 string from a native address without creating
-+* an external ArrayBuffer, which is unsafe in the packaged Electron runtime.
- */
- function readUtf16(koffi, address) {
--	const bytes = Buffer.from(koffi.view(address, 32768));
--	let end = 0;
--	while (end + 1 < bytes.length && !(bytes[end] === 0 && bytes[end + 1] === 0)) end += 2;
--	return bytes.toString("utf16le", 0, end);
-+	return koffi.decode.string16(address);
- }
- const COINIT_APARTMENTTHREADED = 2;
- const CLSCTX_INPROC_SERVER = 1;
-@@ -205,9 +205,10 @@ if (title === "") throw new Error("win32-dialog-worker: DSH_DIALOG_TITLE is requ
- if (process.send === void 0) throw new Error("win32-dialog-worker must run as a child process with an IPC channel");
- const send = process.send.bind(process);
+@@ -227,5 +227,6 @@ const send = process.send.bind(process);
  const post = (message) => {
 +	const isTerminal = message.kind !== "showing";
  	/* v8 ignore next 3 -- disconnect needs a live IPC channel the unit lane must not sever (built-worker.e2e.ts owns the real close path). */
@@ -75,14 +48,11 @@ diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/work
 -		if (process.connected) process.disconnect();
 +		if (isTerminal && process.connected) process.disconnect();
  	});
- };
- /* v8 ignore next 3 -- the handler exits(0), which would kill the unit lane; built-worker.e2e.ts owns the real disconnect lifecycle. */
 diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
+index 70a498a..309deb8 100644
 --- a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
-@@ -524,11 +524,13 @@ var LocalSandboxProvider = class extends SandboxProvider {
- 	windowsAclRunnerInvocation() {
- 		const override = this.internals.windowsAclRunnerArgs;
+@@ -526,7 +526,9 @@ var LocalSandboxProvider = class extends SandboxProvider {
  		if (override !== void 0) return override;
 +		const nodeExecutable = process.env.MINKE_NODE_EXECUTABLE;
 +		if (nodeExecutable === void 0 || nodeExecutable === "") throw new Error("Minke managed Node executable is unavailable");
@@ -94,5 +64,3 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_mod
 -			process.execPath,
 +			nodeExecutable,
  			"--import",
- 			"tsx/esm",
- 			sourceEntry

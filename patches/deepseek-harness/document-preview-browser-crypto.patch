@@ -1,0 +1,11 @@
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
+--- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
++++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
+@@ -3330,7 +3330,6 @@
+ 			return str.replaceAll(NormalizeRegex, (_, p1, p2) => p1 ? p1.normalize("NFKC") : NormalizationMap.get(p2));
+ 		}
+ 		function getUuid() {
+-			if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+ 			const buf = new Uint8Array(32);
+ 			crypto.getRandomValues(buf);
+ 			return bytesToString(buf);

@@ -77,20 +77,20 @@ function markShell(root: Document, view: DesktopSurfaceView): void {
     newSession.setAttribute("data-dsh-desktop-new-session", "");
   }
 
-  const detailsColumn = frame.children.item(2);
-  const detailsSlot = detailsColumn?.querySelector(
-    ':scope > [data-slot="details"]',
+  const rightbarColumn = frame.children.item(2);
+  const rightbarSlot = rightbarColumn?.querySelector(
+    ':scope > [data-slot="rightbar"]',
   );
-  const detailsSurface = detailsSlot?.firstElementChild;
-  if (detailsSurface instanceof view.HTMLElement) {
-    detailsSurface.setAttribute("data-dsh-desktop-base-surface", "");
+  const rightbarSurface = rightbarSlot?.querySelector("[data-sidebar-right-panel]");
+  if (rightbarSurface instanceof view.HTMLElement) {
+    rightbarSurface.setAttribute("data-dsh-desktop-base-surface", "");
   }
 
   for (const candidate of frame.children) {
     if (
       candidate instanceof view.HTMLElement &&
       (candidate.dataset.side === "sidebar" ||
-        candidate.dataset.side === "details")
+        candidate.dataset.side === "rightbar")
     ) {
       candidate.setAttribute(
         "data-dsh-desktop-resize-handle",

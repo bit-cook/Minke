@@ -92,13 +92,13 @@ type TabsPanelView = Window & {
 /** One layer above the host shell overlay (`z-index: 20`). */
 const NATIVE_HANDLE_ACTIVE_Z_INDEX = "21";
 
-function detailsColumnFor(
+function rightbarColumnFor(
   panel: HTMLDivElement,
 ): HTMLElement | undefined {
-  const detailsSlot = panel.ownerDocument.querySelector(
-    '[data-slot="details"]',
+  const rightbarSlot = panel.ownerDocument.querySelector(
+    '[data-slot="rightbar"]',
   );
-  return detailsSlot?.parentElement ?? undefined;
+  return rightbarSlot?.parentElement ?? undefined;
 }
 
 function frameFor(
@@ -124,7 +124,7 @@ function sidebarColumnFor(
 export class TabsPanelResizeController {
   readonly #panel: HTMLDivElement;
   readonly #overlay: HTMLElement | undefined;
-  readonly #detailsColumn: HTMLElement | undefined;
+  readonly #rightbarColumn: HTMLElement | undefined;
   readonly #frame: HTMLElement | undefined;
   readonly #sidebarColumn: HTMLElement | undefined;
   readonly #view: TabsPanelView | null;
@@ -158,7 +158,7 @@ export class TabsPanelResizeController {
     this.#overlay =
       panel.closest<HTMLElement>("[data-shell-overlay]") ??
       undefined;
-    this.#detailsColumn = detailsColumnFor(panel);
+    this.#rightbarColumn = rightbarColumnFor(panel);
     this.#frame = frameFor(panel);
     this.#sidebarColumn = sidebarColumnFor(this.#frame);
     this.#view =
@@ -172,8 +172,8 @@ export class TabsPanelResizeController {
         this.#reconcile,
       );
       this.#observer = observer;
-      if (this.#detailsColumn !== undefined) {
-        observer.observe(this.#detailsColumn);
+      if (this.#rightbarColumn !== undefined) {
+        observer.observe(this.#rightbarColumn);
       }
       if (this.#sidebarColumn !== undefined) {
         observer.observe(this.#sidebarColumn);
@@ -353,7 +353,7 @@ export class TabsPanelResizeController {
     const next = Array.from(this.#frame?.children ?? []).find(
       (child): child is HTMLElement =>
         child instanceof HTMLElement &&
-        child.dataset.side === "details",
+        child.dataset.side === "rightbar",
     );
     if (next === this.#nativeHandle) return;
     this.#detachNative?.();
@@ -448,7 +448,7 @@ export class TabsPanelResizeController {
     if (origin === undefined) return;
     const requested =
       origin.width - (event.clientX - origin.x);
-    const trackMaximum = this.#detailsTrackMaximum();
+    const trackMaximum = this.#rightbarTrackMaximum();
     if (
       requested > trackMaximum ||
       origin.width > trackMaximum
@@ -486,7 +486,7 @@ export class TabsPanelResizeController {
     this.#rightTrackAppliedWidth = undefined;
     this.#extendedWidth =
       this.#nativeHandle === undefined ||
-      next > this.#detailsTrackMaximum()
+      next > this.#rightbarTrackMaximum()
         ? next
         : undefined;
     this.#reconcile();
@@ -521,7 +521,7 @@ export class TabsPanelResizeController {
 
   #measuredTrackWidth(): number {
     const measured = Math.round(
-      this.#detailsColumn?.getBoundingClientRect().width ?? 0,
+      this.#rightbarColumn?.getBoundingClientRect().width ?? 0,
     );
     return measured >= TABS_PANEL_MIN_WIDTH
       ? measured
@@ -551,7 +551,7 @@ export class TabsPanelResizeController {
     );
   }
 
-  #detailsTrackMaximum(): number {
+  #rightbarTrackMaximum(): number {
     return tabsPanelReflowMaxWidth(
       this.#viewportWidth(),
       this.#sidebarWidth(),

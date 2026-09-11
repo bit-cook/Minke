@@ -21,7 +21,8 @@ function report(error, seen = new Set(), indent = "") {
 }
 
 try {
-  await import("${cliPackageName}/lib/bin.js");
+  const { runCli } = await import("${cliPackageName}/lib/bin.js");
+  await runCli();
 } catch (error) {
   report(error);
   process.exitCode = 1;

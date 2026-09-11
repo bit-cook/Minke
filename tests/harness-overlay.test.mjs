@@ -800,13 +800,13 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     tabsInstallSource,
-    /ctx\.layout\.openDetails\.bind\(ctx\.layout\)/u,
-    "right Tabs must open the alpha.2 Details track through its public transition",
+    /ctx\.layout\.openRightbar\.bind\(ctx\.layout\)/u,
+    "right Tabs must open the native rightbar track through its public transition",
   );
   assert.match(
     tabsInstallSource,
-    /ctx\.layout\.closeDetails\.bind\(ctx\.layout\)/u,
-    "right Tabs must close the alpha.2 Details track through its public transition",
+    /ctx\.layout\.closeRightbar\.bind\(ctx\.layout\)/u,
+    "right Tabs must close the native rightbar track through its public transition",
   );
   assert.doesNotMatch(
     tabsInstallSource,

@@ -12,9 +12,9 @@ export interface RightTabsPresentationPort {
   subscribe(listener: () => void): () => void;
 }
 
-interface DetailsLayoutHost {
-  openDetails(): void;
-  closeDetails(): void;
+interface RightbarLayoutHost {
+  openRightbar(track: boolean, fullscreen: boolean): void;
+  closeRightbar(): void;
 }
 
 type MatchMediaHost = Pick<Window, "matchMedia">;
@@ -27,12 +27,12 @@ export interface ResponsiveRightTabsHostOptions {
 
 /**
  * Owns the responsive seam between Minke's right Tabs panel and DSH's
- * desktop Details grid track. A mobile drawer keeps the upstream Details
+ * desktop right Sidebar grid track. A mobile drawer keeps the upstream right Sidebar
  * subtree mounted while forcing its layout track closed.
  */
 export class ResponsiveRightTabsHost
   implements TabsHost, RightTabsPresentationPort {
-  readonly #layout: DetailsLayoutHost;
+  readonly #layout: RightbarLayoutHost;
   readonly #media: MediaQueryList;
   readonly #drawerEnabled: boolean;
   readonly #listeners = new Set<() => void>();
@@ -40,7 +40,7 @@ export class ResponsiveRightTabsHost
   #disposed = false;
 
   constructor(
-    layout: DetailsLayoutHost,
+    layout: RightbarLayoutHost,
     options: ResponsiveRightTabsHostOptions = {},
   ) {
     this.#layout = layout;
@@ -75,7 +75,7 @@ export class ResponsiveRightTabsHost
   hidePanel(): void {
     if (this.#disposed) return;
     this.#visible = false;
-    this.#layout.closeDetails();
+    this.#layout.closeRightbar();
   }
 
   dispose(): void {
@@ -86,7 +86,7 @@ export class ResponsiveRightTabsHost
       this.#handlePresentationChange,
     );
     if (this.#visible) {
-      this.#layout.closeDetails();
+      this.#layout.closeRightbar();
       this.#visible = false;
     }
     this.#listeners.clear();
@@ -100,9 +100,9 @@ export class ResponsiveRightTabsHost
 
   #applyLayout(): void {
     if (this.getSnapshot() === "drawer") {
-      this.#layout.closeDetails();
+      this.#layout.closeRightbar();
     } else {
-      this.#layout.openDetails();
+      this.#layout.openRightbar(true, false);
     }
   }
 }
