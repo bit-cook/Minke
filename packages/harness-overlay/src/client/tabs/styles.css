@@ -945,9 +945,18 @@ body:has(
   background: transparent;
 }
 
+/* The native pane owns scrolling; Start fills it before its cards need more room. */
+.minke-tabs-native-guide {
+  min-height: 100%;
+  justify-content: safe center;
+  overflow: visible;
+}
+
 .minke-tabs-native-guide__content {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
+  min-width: 0;
   max-width: 380px;
   gap: 24px;
 }
@@ -966,6 +975,7 @@ body[data-ds-dark-theme] .minke-tabs-native-guide__hero {
 .minke-tabs-native-guide__defaults,
 .minke-tabs-native-guide .minke-tabs-empty__options {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -974,6 +984,7 @@ body[data-ds-dark-theme] .minke-tabs-native-guide__hero {
 
 .minke-tabs-native-guide__section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -986,6 +997,8 @@ body[data-ds-dark-theme] .minke-tabs-native-guide__hero {
 }
 
 .minke-tabs-native-guide .minke-tabs-empty__option {
+  box-sizing: border-box;
+  min-width: 0;
   min-height: 44px;
   padding: 10px 12px;
   gap: 12px;

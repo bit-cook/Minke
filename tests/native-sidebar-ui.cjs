@@ -122,6 +122,57 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   assert.equal(guide.description, "Browse files in this session's workspace");
   assert.equal(guide.heading, 'Minke');
   assert.ok(guide.nativeBottom < guide.minkeTop, 'Minke cards follow the native guide entries');
+  const assertGuideLayout = async state => {
+    const bounds = await rendererValue(window, `() => {
+      const guide = document.querySelector('.minke-tabs-native-guide');
+      let viewport = guide.parentElement;
+      while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
+      const pane = guide.closest('[data-dockkit-pane]');
+      return {
+        guideHeight: guide.getBoundingClientRect().height,
+        viewportHeight: viewport.clientHeight,
+        guideBottom: guide.getBoundingClientRect().bottom,
+        paneBottom: pane.getBoundingClientRect().bottom,
+        guideWidth: guide.clientWidth,
+        guideScrollWidth: guide.scrollWidth,
+        viewportWidth: viewport.clientWidth,
+        viewportScrollWidth: viewport.scrollWidth,
+      };
+    }`);
+    assert.ok(bounds.guideBottom >= bounds.paneBottom - 1,
+      `${state}: Start must fill the pane so scrolling is not stranded above its bottom: ${JSON.stringify(bounds)}`);
+    assert.ok(bounds.guideScrollWidth <= bounds.guideWidth + 1 && bounds.viewportScrollWidth <= bounds.viewportWidth + 1,
+      `${state}: Start cards must fit the pane without horizontal scrolling: ${JSON.stringify(bounds)}`);
+  };
+  await assertGuideLayout('initial Sidebar');
+  const panelWidth = await rendererValue(window, `() => {
+    const panel = document.querySelector('[data-sidebar-right-panel]');
+    const width = panel.style.width;
+    panel.style.width = '300px';
+    return width;
+  }`);
+  try {
+    await assertGuideLayout('300px Sidebar');
+    if (process.env.MINKE_SIDEBAR_SCREENSHOT) await writeFile(`${process.env.MINKE_SIDEBAR_SCREENSHOT}.start-narrow.png`, (await window.webContents.capturePage()).toPNG());
+    window.setContentSize(1280, 420);
+    await waitFor(() => rendererValue(window, '() => innerHeight === 420'), 'short Start viewport');
+    await assertGuideLayout('short Sidebar');
+    const scroll = await rendererValue(window, `() => {
+      const guide = document.querySelector('.minke-tabs-native-guide');
+      let viewport = guide.parentElement;
+      while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
+      viewport.scrollTop = viewport.scrollHeight;
+      const last = [...guide.querySelectorAll('[data-option]')].at(-1);
+      const result = { top: viewport.scrollTop, lastBottom: last.getBoundingClientRect().bottom, viewportBottom: viewport.getBoundingClientRect().bottom };
+      viewport.scrollTop = 0;
+      return result;
+    }`);
+    assert.ok(scroll.top > 0 && scroll.lastBottom <= scroll.viewportBottom, 'short Start pages scroll to the final card: ' + JSON.stringify(scroll));
+  } finally {
+    window.setContentSize(1280, 800);
+    await waitFor(() => rendererValue(window, '() => innerHeight === 800'), 'restored Start viewport');
+    await rendererValue(window, `() => { document.querySelector('[data-sidebar-right-panel]').style.width = ${JSON.stringify(panelWidth)}; return true; }`);
+  }
 
   // Source input at the failing seam is now green; also exercise the same
   // global actions at compact widths and while DSH owns fullscreen.
@@ -130,8 +181,10 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     await waitFor(() => rendererValue(window, `() => innerWidth === ${width}`), 'window resize');
     await new Promise(resolve => setTimeout(resolve, 300));
     assert.deepEqual(await layout(), [], `layout controls at width ${width}`);
+    await assertGuideLayout(`Sidebar at width ${width}`);
     await click('[data-sidebar-right-mode="fullscreen"]');
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="fullscreen"]') !== null`), 'fullscreen mode');
+    await assertGuideLayout(`fullscreen at width ${width}`);
     if (process.platform === 'darwin') {
       const chrome = await rendererValue(window, `() => {
         const panel = document.querySelector('[data-sidebar-right-panel="fullscreen"]');

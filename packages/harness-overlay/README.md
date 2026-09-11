@@ -83,6 +83,8 @@ the visible content and does not create a Start tab.
 The Start page follows `dsh-v0.1.5-rc.2`'s compass and descriptive native cards,
 with the Minke card list below them. Native descriptions appear for up to four
 entries and remain owned by the registering plugin's locale.
+Start fills at least the pane's available height and uses the native pane's
+scroller. Cards shrink within narrow panes so their text cannot widen the page.
 
 The Files editor offers Preview, Source and Diff for Markdown and HTML files.
 Preview renders the current draft through DSH's document bodies; changing modes
