@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { writeFile } = require('node:fs/promises');
+const { readFile, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { nativeTheme, webContents } = require('electron');
 
@@ -25,9 +25,9 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
       window.webContents.sendInputEvent({ type: 'keyUp', keyCode });
     }
   };
-  const click = async selector => {
+  const click = async (selector, index = 0) => {
     const point = await waitFor(() => rendererValue(window, `() => {
-      const button = document.querySelector(${JSON.stringify(selector)});
+      const button = document.querySelectorAll(${JSON.stringify(selector)})[${index}];
       if (!button || !button.checkVisibility({ checkVisibilityCSS: true })) return false;
       const rect = button.getBoundingClientRect();
       const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
@@ -113,18 +113,19 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     const entry = document.querySelector('[data-sidebar-right-guide-entry="files"]');
     const section = document.querySelector('.minke-tabs-native-guide__section');
     return {
-      description: entry.querySelector('.minke-tabs-native-guide__description')?.textContent,
+      description: entry.textContent,
       heading: section.querySelector('h2').textContent,
       nativeBottom: entry.getBoundingClientRect().bottom,
       minkeTop: section.getBoundingClientRect().top,
     };
   }`);
-  assert.equal(guide.description, "Browse files in this session's workspace");
+  assert.ok(guide.description.includes("Browse files in this session's workspace"));
   assert.equal(guide.heading, 'Minke');
+  assert.equal(await rendererValue(window, `() => document.querySelector('[data-sidebar-right-guide-entry="terminal"] button[aria-label="Choose shell"]') !== null`), true, 'the native terminal guide retains its shell picker above Minke cards');
   assert.ok(guide.nativeBottom < guide.minkeTop, 'Minke cards follow the native guide entries');
   const assertGuideLayout = async state => {
     const bounds = await rendererValue(window, `() => {
-      const guide = document.querySelector('.minke-tabs-native-guide');
+      const guide = document.querySelector('[data-sidebar-right-guide]');
       let viewport = guide.parentElement;
       while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
       const pane = guide.closest('[data-dockkit-pane]');
@@ -150,14 +151,14 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   const assertBottomLayout = async state => {
     await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
     await rendererValue(window, `() => {
-      let viewport = document.querySelector('.minke-tabs-native-guide').parentElement;
+      let viewport = document.querySelector('[data-sidebar-right-guide]').parentElement;
       while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
       viewport.scrollTop = viewport.scrollHeight;
       return true;
     }`);
     await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
     const bounds = await rendererValue(window, `() => {
-      const guide = document.querySelector('.minke-tabs-native-guide');
+      const guide = document.querySelector('[data-sidebar-right-guide]');
       let viewport = guide.parentElement;
       while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
       const panel = guide.closest('[data-sidebar-right-panel]');
@@ -197,7 +198,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') === null`), 'bottom panel closed after Start scroll');
   await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="push"]').getBoundingClientRect().bottom === innerHeight`), 'Sidebar regains its full height');
   await rendererValue(window, `() => {
-    let viewport = document.querySelector('.minke-tabs-native-guide').parentElement;
+    let viewport = document.querySelector('[data-sidebar-right-guide]').parentElement;
     while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
     viewport.scrollTop = 0;
     return true;
@@ -215,7 +216,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     await waitFor(() => rendererValue(window, '() => innerHeight === 420'), 'short Start viewport');
     await assertGuideLayout('short Sidebar');
     const scroll = await rendererValue(window, `() => {
-      const guide = document.querySelector('.minke-tabs-native-guide');
+      const guide = document.querySelector('[data-sidebar-right-guide]');
       let viewport = guide.parentElement;
       while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
       viewport.scrollTop = viewport.scrollHeight;
@@ -313,6 +314,42 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
       capturedMenu = true;
     }
   };
+
+  // Exercise the provider-owned guide, two independent native shells, and cleanup
+  // before creating Minke content. This catches accidental replacement of the guide.
+  await click('[data-sidebar-right-guide-entry="terminal"] button[aria-label="Choose shell"]');
+  await waitFor(() => rendererValue(window, `() => [...document.querySelectorAll('[role="menuitem"]:not([disabled])')].some(item => /^(ba|z|k)?sh$/i.test(item.textContent.trim()))`), 'native shell choices');
+  const shellIndex = await rendererValue(window, `() => [...document.querySelectorAll('[role="menuitem"]')].findIndex(item => /^(ba|z|k)?sh$/i.test(item.textContent.trim()))`);
+  await click('[role="menuitem"]', shellIndex);
+  const nativeTerminalIds = [];
+  const runNativeShell = async (file, value) => {
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-terminal] .xterm-helper-textarea') !== null && document.querySelector('[data-sidebar-terminal] [role="status"]') === null`), 'connected native terminal');
+    await click('[data-sidebar-terminal] .xterm-screen');
+    typeKeys(`printf '%s' '${value}' > '${file}'`);
+    pressEnter();
+    await waitFor(async () => {
+      try { return await readFile(join(workspace, file), 'utf8') === value; }
+      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    }, 'native shell writes its workspace file');
+    return rendererValue(window, `() => document.querySelector('[data-sidebar-terminal]').closest('[data-dockkit-pane]').querySelector('[data-dockkit-tab][aria-selected="true"]').dataset.dockkitTab`);
+  };
+  nativeTerminalIds.push(await runNativeShell('dsh-terminal-one.txt', 'first'));
+  await add();
+  await click('[data-minke-tabs-create-menu] [data-option="dsh:@deepseek-ai/dsh-client-ui-sidebar-terminal:new"]');
+  nativeTerminalIds.push(await runNativeShell('dsh-terminal-two.txt', 'second'));
+  assert.notEqual(nativeTerminalIds[0], nativeTerminalIds[1], 'native terminal instances have separate tabs');
+  await click(`[data-dockkit-tab="${nativeTerminalIds[0]}"]`);
+  await runNativeShell('dsh-terminal-one.txt', 'retained');
+  for (const id of nativeTerminalIds) {
+    await click(`[data-dockkit-tab="${id}"]`);
+    await click(`[data-dockkit-tab="${id}"] [data-dockkit-tab-close]`);
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-tab="${id}"]') === null`), 'closed native terminal');
+  }
+  await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel][data-sidebar-right-open]') === null`), 'Sidebar closes with its last native terminal');
+  await click('[data-minke-new-session-tabs-action] button[data-minke-tabs-placement="right"]');
+  await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-guide] [data-option="browser"]') !== null`), 'Start after closing native terminals');
+  process.stdout.write('[sidebar-ui] native shell picker, independent terminals and close passed\n');
+
   await create('browser', 'web', 1);
   await waitFor(() => rendererValue(window, `() => document.activeElement === document.querySelector('.minke-tabs-native-host[data-kind="web"] input[role="combobox"]')`), 'new Web tab address focus', 5_000);
   await window.webContents.insertText(fixtureUrl);

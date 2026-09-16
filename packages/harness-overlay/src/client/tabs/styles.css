@@ -947,35 +947,7 @@ body:has(
   background: transparent;
 }
 
-/* The native pane owns scrolling; Start fills it before its cards need more room. */
-.minke-tabs-native-guide {
-  min-height: 100%;
-  justify-content: safe center;
-  overflow: visible;
-}
-
-.minke-tabs-native-guide__content {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  width: 100%;
-  min-width: 0;
-  max-width: 380px;
-  gap: 24px;
-}
-
-.minke-tabs-native-guide__hero {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 6px;
-  color: var(--dsw-static-neutral-200);
-}
-
-body[data-ds-dark-theme] .minke-tabs-native-guide__hero {
-  color: var(--dsw-static-neutral-700);
-}
-
-.minke-tabs-native-guide__defaults,
-.minke-tabs-native-guide .minke-tabs-empty__options {
+.minke-tabs-native-guide__section .minke-tabs-empty__options {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
@@ -985,6 +957,7 @@ body[data-ds-dark-theme] .minke-tabs-native-guide__hero {
 }
 
 .minke-tabs-native-guide__section {
+  margin-top: 10px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
@@ -998,7 +971,7 @@ body[data-ds-dark-theme] .minke-tabs-native-guide__hero {
   line-height: 20px;
 }
 
-.minke-tabs-native-guide .minke-tabs-empty__option {
+.minke-tabs-native-guide__section .minke-tabs-empty__option {
   box-sizing: border-box;
   min-width: 0;
   min-height: 44px;
@@ -1007,64 +980,13 @@ body[data-ds-dark-theme] .minke-tabs-native-guide__hero {
   border-radius: 10px;
 }
 
-.minke-tabs-native-guide .minke-tabs-empty__option:focus-visible {
+.minke-tabs-native-guide__section .minke-tabs-empty__option:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 2px;
 }
 
-.minke-tabs-native-guide .minke-tabs-empty__label {
+.minke-tabs-native-guide__section .minke-tabs-empty__label {
   min-width: 0;
-}
-
-.minke-tabs-native-guide__defaults .minke-tabs-empty__option {
-  min-height: 56px;
-  padding: 14px 20px;
-  gap: 14px;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: 24px;
-  background: var(--dsw-alias-bg-layer-1);
-}
-
-.minke-tabs-native-guide__defaults {
-  gap: 14px;
-}
-
-.minke-tabs-native-guide__defaults .minke-tabs-empty__icon {
-  width: 26px;
-  height: 26px;
-}
-
-.minke-tabs-native-guide__placeholder {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.minke-tabs-native-guide__text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.minke-tabs-native-guide__defaults .minke-tabs-empty__option:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.minke-tabs-native-guide__defaults .minke-tabs-empty__label {
-  overflow: hidden;
-  font-size: 15px;
-  font-weight: 400;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.minke-tabs-native-guide__description {
-  overflow: hidden;
-  color: var(--dsw-alias-label-caption);
-  font-size: 13px;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .minke-tabs-native-guide__shortcut {

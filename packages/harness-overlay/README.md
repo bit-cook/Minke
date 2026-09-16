@@ -8,7 +8,7 @@ The host composition mounts the separate `@lencx/minke-model-runtime/dsh` adapte
 
 - `model-runtime` is a DSH plugin that owns local model discovery and optional service lifecycle for exactly two product runtimes: LM Studio and Ollama. LM Studio uses `lms server status --json` / `lms server start` and enriches its OpenAI-compatible catalog with LM Studio's v1 loaded-instance metadata. Before dispatch, it verifies that the selected instance has the configured context window. Selecting an unloaded model explicitly authorizes Minke to load that model with the configured context, even when LM Studio was started externally; Minke still never unloads or reconfigures an existing external instance. If Minke started the service itself, it may also reload an undersized default model instance while preserving its supported load parameters. Ollama uses its OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`. A generic `openAICompatible` adapter remains available for manually configured loopback servers; it does not gain command discovery or process management.
 
-Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.1.5-rc.2` runtime and are not embedded in Minke's base runtime. Install one into the `web` Profile:
+Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.1.6-alpha.1` runtime and are not embedded in Minke's base runtime. Install one into the `web` Profile:
 
 - Codex: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-codex`
 - Claude Code: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-claude-code`
@@ -72,15 +72,17 @@ The separate document-start extension remains CSS-only. It exists solely because
 While a conversation is selected, DSH owns the right tab strip, selection,
 splits, floats, fullscreen, and native document previews. Minke registers its
 Files editor, Terminal, Web, AgentBrowser, Plugins, and Browser History through
-`sidebarRightTabs` and the body/title slots. The native Start page directly offers
-Minke's creation cards and shortcut hints below other plugins' guide entries.
+`sidebarRightTabs` and the body/title slots. The native Start page offers
+Minke's creation cards and shortcut hints through `sidebar.right.tab.guide.entry`,
+below the native Workspace files and Terminal cards. DSH owns the Terminal shell
+picker and its multiple-instance, cleanup and refresh-recovery lifecycle.
 Creating a Minke tab replaces Start in the same pane and strip slot; keyboard
 creation shortcuts continue to use the same controllers. The earlier
-`minke.launcher` address remains supported by the same chooser.
+`minke.launcher` address redirects to the native Start page.
 The native add-tab button opens the shared dropdown with DSH and Minke groups.
 Choosing an entry creates it in that button's pane; dismissing the menu preserves
 the visible content and does not create a Start tab.
-The Start page follows `dsh-v0.1.5-rc.2`'s compass and descriptive native cards,
+The Start page follows `dsh-v0.1.6-alpha.1`'s compass and descriptive native cards,
 with the Minke card list below them. Native descriptions appear for up to four
 entries and remain owned by the registering plugin's locale.
 Start fills at least the pane's available height and uses the native pane's

@@ -44,6 +44,8 @@ export interface NativeTabInfo {
 }
 
 export interface NativeGuideEntry {
+  readonly id: string;
+  readonly providerId: string;
   readonly kind: string;
   readonly order: number;
   readonly title: () => string;
@@ -53,7 +55,7 @@ export interface NativeGuideEntry {
 
 /** Public DSH registry surface used to retain other plugins' guide entries. */
 export interface NativeTabRegistry {
-  register(definition: { id: string; kind: string; title(): string; guide?: readonly Omit<NativeGuideEntry, "kind">[] }): () => void;
+  register(definition: { id: string; kind: string; title(): string; guide?: readonly Omit<NativeGuideEntry, "kind" | "providerId">[] }): () => void;
   guide(): readonly NativeGuideEntry[];
   subscribe(listener: () => void): () => void;
 }

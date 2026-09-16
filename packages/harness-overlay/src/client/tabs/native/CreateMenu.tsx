@@ -95,10 +95,10 @@ export function NativeTabsCreateMenu({ native, sidebar, registry, renderers, cre
   if (!request) return null;
   const { sessionId, paneId } = request;
   const options: TabsCreateMenuOption[] = [
-    ...entries.map((entry, index): TabsCreateMenuOption => {
+    ...entries.map((entry): TabsCreateMenuOption => {
       const Icon = entry.icon;
       return {
-        id: `dsh:${entry.kind}:${index}`, group: "DSH", label: entry.title(),
+        id: `dsh:${entry.providerId}:${entry.id}`, group: "DSH", label: entry.title(),
         icon: Icon ? <Icon size={16} /> : null,
         create: () => {
           if (native.canCreateIn(sessionId, paneId)) sidebar.openTab(entry.kind, { paneId });

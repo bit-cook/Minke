@@ -5,7 +5,7 @@ import type { TabsLocaleKey } from "../locales.ts";
 import type { TabRendererRegistry } from "../registry.ts";
 import type { TabsRuntime } from "../runtime.ts";
 import type { NativeSidebarService, NativeTabRegistry } from "./contract.ts";
-import { NativeTabGuide } from "./Guide.tsx";
+import { LegacyNativeTabGuide, NativeTabGuide } from "./Guide.tsx";
 import { NativeTabsCreateMenu } from "./CreateMenu.tsx";
 import { NativeTabsRuntime } from "./runtime.ts";
 import { NativeTabBody, NativeTabTitle } from "./views.tsx";
@@ -50,18 +50,17 @@ export function installNativeTabs(ctx: HarnessClientContext, runtime: TabsRuntim
       });
       const guideId = "@lencx/minke-harness-overlay/tab/launcher";
       const t = ctx.locale.bind<TabsLocaleKey>(TABS_NAMESPACE);
-      // Preserve earlier launcher addresses and contribute a doorway so DSH's
-      // single-entry seed does not skip Start and open Workspace files directly.
+      // Preserve earlier launcher addresses and contribute Minke's guide entry.
+      // The native guide remains responsible for other providers' custom cards.
       const releaseLauncher = registry.register({
         id: guideId, kind: "minke.launcher", title: () => t("tab.new"),
-        guide: [{ order: 50, title: () => t("tab.new") }],
+        guide: [{ id: "minke", order: 50, title: () => "Minke" }],
       });
       const releaseLauncherBody = ctx.slots.inject("sidebar.right.pane.tab", () => ctx.slots.register({
         name: "sidebar.right.pane.tab", key: guideId, locale: TABS_NAMESPACE, inject: injectGuide,
-      }, NativeTabGuide as ComponentType<never>));
-      const releaseGuide = ctx.slots.inject("sidebar.right.tab.guide", () => ctx.slots.register({
-        name: "sidebar.right.tab.guide", id: "@lencx/minke-harness-overlay/tab/guide", locale: TABS_NAMESPACE,
-        select: () => renderers.creators().length > 0 ? true : null,
+      }, LegacyNativeTabGuide as ComponentType<never>));
+      const releaseGuide = ctx.slots.inject("sidebar.right.tab.guide.entry", () => ctx.slots.register({
+        name: "sidebar.right.tab.guide.entry", key: guideId, locale: TABS_NAMESPACE,
         inject: injectGuide,
       }, NativeTabGuide as ComponentType<never>));
       const releaseConnection = native.connect(sidebar);
