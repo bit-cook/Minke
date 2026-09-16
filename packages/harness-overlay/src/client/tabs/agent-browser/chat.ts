@@ -44,7 +44,7 @@ export interface AgentBrowserChatPort {
 export interface AgentBrowserComposerCapability {
   /**
    * Stage the screenshot in an existing Chat draft.
-   * @returns false only when the installed Harness lacks this capability.
+   * @returns false while the composer services are unavailable.
    */
   stage(
     screenshot: AgentBrowserChatScreenshot,
@@ -61,8 +61,27 @@ export interface AgentBrowserComposerBridge
   ): () => void;
 }
 
-interface DraftImage {
+interface DraftAttachment {
   readonly id: string;
+}
+
+interface ComposerSpan {
+  readonly start: number;
+  readonly end: number;
+  readonly draftRev: number;
+}
+
+interface ComposerScope {
+  bail(
+    event: "slash/input-insert-text",
+    request: { readonly text: string; readonly span: ComposerSpan },
+  ): unknown;
+  bail(
+    event: "slash/input-consume-token",
+    request: {
+      readonly guard: { readonly kind: "span"; readonly span: ComposerSpan };
+    },
+  ): unknown;
 }
 
 interface ComposerInput {
@@ -73,10 +92,11 @@ interface ComposerInput {
       readonly occurrences: readonly {
         readonly source: string;
         readonly ref: string;
+        readonly length: number;
       }[];
     };
   };
-  addImages(ids: readonly string[]): boolean;
+  addAttachments(ids: readonly string[]): boolean;
   insertReference(
     reference: {
       readonly source: string;
@@ -84,22 +104,20 @@ interface ComposerInput {
       readonly label: string;
       readonly clipboardText: string;
     },
-    span: {
-      readonly start: number;
-      readonly end: number;
-      readonly draftRev: number;
-    },
+    span: ComposerSpan,
   ): boolean;
-  removeImage(id: string): void;
-  setDraft(text: string): void;
+  removeAttachment(id: string): boolean;
 }
 
 interface ComposerService {
   readonly input: {
     for(scope: unknown): ComposerInput;
   };
-  createDraftImages(files: readonly File[]): readonly DraftImage[];
-  releaseDraftImages(images: readonly DraftImage[]): void;
+  createDrafts(
+    sessionId: string,
+    files: readonly File[],
+  ): readonly DraftAttachment[];
+  releaseDraftAttachments(attachments: readonly DraftAttachment[]): void;
 }
 
 interface InputTriggerService {
@@ -119,6 +137,7 @@ interface BrowserCommentsSource {
 }
 
 interface BrowserCommentReference {
+  readonly sessionId: string;
   readonly text: string;
   readonly label: string;
   readonly clipboardText: string;
@@ -143,9 +162,8 @@ function isFunction(
 
 /**
  * The pinned Harness keeps File objects in ConversationController while the
- * input machine stores only opaque attachment ids. Treat that concrete,
- * optional capability as version-gated so older Harness builds retain the
- * direct-prompt path instead of receiving half-registered draft images.
+ * input machine stores only opaque attachment ids. An unavailable service must
+ * leave the annotation handoff retryable, never silently submit it to a model.
  */
 function composerService(value: unknown): ComposerService | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -153,13 +171,13 @@ function composerService(value: unknown): ComposerService | undefined {
     readonly input?: {
       readonly for?: unknown;
     };
-    readonly createDraftImages?: unknown;
-    readonly releaseDraftImages?: unknown;
+    readonly createDrafts?: unknown;
+    readonly releaseDraftAttachments?: unknown;
   };
   if (
     !isFunction(candidate.input?.for) ||
-    !isFunction(candidate.createDraftImages) ||
-    !isFunction(candidate.releaseDraftImages)
+    !isFunction(candidate.createDrafts) ||
+    !isFunction(candidate.releaseDraftAttachments)
   ) {
     return undefined;
   }
@@ -172,17 +190,15 @@ function composerInput(value: unknown): ComposerInput | undefined {
     readonly state?: {
       readonly getSnapshot?: unknown;
     };
-    readonly addImages?: unknown;
+    readonly addAttachments?: unknown;
     readonly insertReference?: unknown;
-    readonly removeImage?: unknown;
-    readonly setDraft?: unknown;
+    readonly removeAttachment?: unknown;
   };
   if (
     !isFunction(candidate.state?.getSnapshot) ||
-    !isFunction(candidate.addImages) ||
+    !isFunction(candidate.addAttachments) ||
     !isFunction(candidate.insertReference) ||
-    !isFunction(candidate.removeImage) ||
-    !isFunction(candidate.setDraft)
+    !isFunction(candidate.removeAttachment)
   ) {
     return undefined;
   }
@@ -224,11 +240,7 @@ function annotationLabel(text: string): string {
   return `${String(count)} annotation${count === 1 ? "" : "s"}`;
 }
 
-function appendReferenceToken(current: string): {
-  readonly draft: string;
-  readonly start: number;
-  readonly end: number;
-} {
+function referenceSuffix(current: string): string {
   const separator = current.trim() === ""
     ? ""
     : current.endsWith("\n\n")
@@ -236,20 +248,12 @@ function appendReferenceToken(current: string): {
     : current.endsWith("\n")
     ? "\n"
     : "\n\n";
-  const prefix = current.trim() === ""
-    ? ""
-    : `${current}${separator}`;
-  const token = "@browser-comments";
-  return {
-    draft: `${prefix}${token}`,
-    start: prefix.length,
-    end: prefix.length + token.length,
-  };
+  return `${separator}@browser-comments`;
 }
 
-function assertDraftImages(
-  value: readonly DraftImage[],
-): asserts value is readonly DraftImage[] {
+function assertDraftAttachments(
+  value: readonly DraftAttachment[],
+): asserts value is readonly DraftAttachment[] {
   if (
     value.length !== 1 ||
     typeof value[0]?.id !== "string" ||
@@ -264,25 +268,27 @@ function assertDraftImages(
 function rollbackDraftStage(
   service: ComposerService,
   input: ComposerInput,
-  images: readonly DraftImage[],
-  previousDraft: string,
-  draftChanged: boolean,
+  attachments: readonly DraftAttachment[],
+  scope: ComposerScope,
+  insertedSpan: ComposerSpan | undefined,
 ): void {
   try {
-    service.releaseDraftImages(images);
+    service.releaseDraftAttachments(attachments);
   } catch {
     // Rollback is best-effort; preserve the staging error.
   }
-  for (const image of images) {
+  for (const attachment of attachments) {
     try {
-      input.removeImage(image.id);
+      input.removeAttachment(attachment.id);
     } catch {
       // Continue releasing the rest of the staged transaction.
     }
   }
-  if (draftChanged) {
+  if (insertedSpan !== undefined) {
     try {
-      input.setDraft(previousDraft);
+      scope.bail("slash/input-consume-token", {
+        guard: { kind: "span", span: insertedSpan },
+      });
     } catch {
       // Preserve the original staging error.
     }
@@ -296,7 +302,10 @@ function inputSnapshot(input: ComposerInput): ReturnType<
   if (
     typeof snapshot.draft !== "string" ||
     !Number.isSafeInteger(snapshot.draftRev) ||
-    !Array.isArray(snapshot.occurrences)
+    !Array.isArray(snapshot.occurrences) ||
+    snapshot.occurrences.some(
+      ({ length }) => !Number.isSafeInteger(length) || length < 1,
+    )
   ) {
     throw new Error(
       "The selected Chat composer returned an invalid draft",
@@ -355,7 +364,15 @@ export function createAgentBrowserComposerBridge(
     if (typeof sessions.scope !== "function") return;
     const live = new Set<string>();
     const snapshot = sessions.list.getSnapshot();
-    for (const sessionId of Object.keys(snapshot.byId)) {
+    // Only sessions with our references need inspection. Resolving every
+    // catalog row would materialize an editor for every historical session.
+    const owners = new Set(
+      [...references.values()].map(({ sessionId }) => sessionId),
+    );
+    for (const sessionId of owners) {
+      if (sessionId !== current?.sessionId && !(sessionId in snapshot.byId)) {
+        continue;
+      }
       const input = sessionId === current?.sessionId
         ? current.input
         : (() => {
@@ -408,10 +425,18 @@ export function createAgentBrowserComposerBridge(
         return false;
       }
       signal?.throwIfAborted();
-      const scope = sessions.scope(target.sessionId);
-      if (scope === undefined) {
+      const scopeValue = sessions.scope(target.sessionId);
+      if (scopeValue === undefined) {
         throw new Error("The selected Chat is no longer available");
       }
+      if (
+        typeof scopeValue !== "object" ||
+        scopeValue === null ||
+        !isFunction((scopeValue as { bail?: unknown }).bail)
+      ) {
+        throw new Error("The selected Chat composer is not available");
+      }
+      const scope = scopeValue as ComposerScope;
       const input = composerInput(
         current.conversation.input.for(scope),
       );
@@ -430,42 +455,48 @@ export function createAgentBrowserComposerBridge(
         );
       }
 
-      const previousDraft = inputSnapshot(input).draft;
-      const referenceDraft = appendReferenceToken(previousDraft);
+      const previous = inputSnapshot(input);
+      // Public TokenSpan coordinates count each existing reference chip as one
+      // character. Append through scoped edits so its identity/codec survives.
+      const end = previous.draft.length - previous.occurrences.reduce(
+        (length, occurrence) => length + occurrence.length - 1,
+        0,
+      );
+      const suffix = referenceSuffix(previous.draft);
       referenceSequence += 1;
       const ref = `browser-comments-${String(referenceSequence)}`;
       const label = annotationLabel(text);
       const clipboardText = `[${label}]`;
-      references.set(ref, { text, label, clipboardText });
-      const images = current.conversation.createDraftImages([
-        screenshotFile(data),
-      ]);
+      const attachments = current.conversation.createDrafts(
+        target.sessionId,
+        [screenshotFile(data)],
+      );
+      let insertedSpan: ComposerSpan | undefined;
       try {
-        assertDraftImages(images);
-      } catch (error) {
-        references.delete(ref);
-        try {
-          current.conversation.releaseDraftImages(images);
-        } catch {
-          // Preserve the attachment-contract error.
+        assertDraftAttachments(attachments);
+        if (!input.addAttachments(attachments.map(({ id }) => id))) {
+          throw new Error("The selected Chat composer is busy; try again");
         }
-        throw error;
-      }
-      if (!input.addImages(images.map(({ id }) => id))) {
-        references.delete(ref);
-        current.conversation.releaseDraftImages(images);
-        throw new Error(
-          "The selected Chat composer is busy; try again",
-        );
-      }
-      let draftChanged = false;
-      try {
         signal?.throwIfAborted();
-        input.setDraft(referenceDraft.draft);
-        draftChanged = true;
+        if (scope.bail("slash/input-insert-text", {
+          text: suffix,
+          span: { start: end, end, draftRev: previous.draftRev },
+        }) !== true) {
+          throw new Error(
+            "The selected Chat composer changed before staging completed",
+          );
+        }
         const staged = inputSnapshot(input);
+        insertedSpan = {
+          start: end,
+          end: end + suffix.length,
+          draftRev: staged.draftRev,
+        };
+        references.set(ref, {
+          sessionId: target.sessionId, text, label, clipboardText,
+        });
         if (
-          staged.draft !== referenceDraft.draft ||
+          staged.draft !== previous.draft + suffix ||
           !input.insertReference(
             {
               source: BROWSER_COMMENTS_SOURCE,
@@ -474,8 +505,8 @@ export function createAgentBrowserComposerBridge(
               clipboardText,
             },
             {
-              start: referenceDraft.start,
-              end: referenceDraft.end,
+              start: end + suffix.length - "@browser-comments".length,
+              end: end + suffix.length,
               draftRev: staged.draftRev,
             },
           )
@@ -484,18 +515,18 @@ export function createAgentBrowserComposerBridge(
             "The selected Chat composer changed before staging completed",
           );
         }
-        sessions.open(target.sessionId);
       } catch (error) {
         references.delete(ref);
         rollbackDraftStage(
           current.conversation,
           input,
-          images,
-          previousDraft,
-          draftChanged,
+          attachments,
+          scope,
+          insertedSpan,
         );
         throw error;
       }
+      sessions.open(target.sessionId);
       return true;
     },
   };
@@ -580,31 +611,9 @@ export function createAgentBrowserChatPort(
         return;
       }
 
-      const session = sessions.binding(resolved.sessionId)?.session;
-      if (session === undefined) {
-        throw new Error("The selected Chat is no longer available");
-      }
-      const result = await session.prompt(
-        [
-          {
-            type: "image",
-            mediaType: "image/png",
-            data,
-            name: "minke-browser-comments.png",
-          },
-          ...(text.trim() === ""
-            ? []
-            : [{ type: "text" as const, text: text.trim() }]),
-        ],
-        "queue",
-        signal,
+      throw new Error(
+        "The Chat composer is not ready; reopen the Chat and try again",
       );
-      if (!result.ok) {
-        throw new Error(
-          `Could not send screenshot to Chat: ${result.error.message}`,
-        );
-      }
-      sessions.open(resolved.sessionId);
     },
   };
 }

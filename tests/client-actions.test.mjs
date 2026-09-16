@@ -28,8 +28,8 @@ test("the composer shortcut focuses only an editable message input", () => {
   assert.deepEqual(selectors, [COMPOSER_INPUT_SELECTOR]);
   assert.deepEqual(focusOptions, [{ preventScroll: true }]);
   assert.match(COMPOSER_INPUT_SELECTOR, /data-composer-card/u);
-  assert.match(COMPOSER_INPUT_SELECTOR, /:not\(:disabled\)/u);
-  assert.match(COMPOSER_INPUT_SELECTOR, /:not\(\[readonly\]\)/u);
+  assert.match(COMPOSER_INPUT_SELECTOR, /\[data-composer-input\]/u);
+  assert.match(COMPOSER_INPUT_SELECTOR, /\[contenteditable="true"\]/u);
   assert.equal(
     focusComposerInput({ querySelector: () => null }),
     false,

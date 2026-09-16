@@ -1,148 +1,68 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Context } from "@vendor/deepseek-harness/vendor/cordis/src/index.ts";
+import { ConversationController } from "@vendor/deepseek-harness/packages/client/ui-conversation/src/client/service.ts";
+import { SessionInputShell } from "@vendor/deepseek-harness/packages/client/ui-conversation/src/client/input/facade.ts";
+import { InputTriggerService } from "@vendor/deepseek-harness/packages/client/ui-input-trigger/src/client/service.ts";
 import {
   createAgentBrowserComposerBridge,
   createAgentBrowserChatPort,
 } from "@minke/harness-overlay/client/tabs/agent-browser/chat.ts";
 
-function sessionFixture({
-  current = "chat-1",
-  prompt,
-  scope = () => ({ sessionId: "chat-1" }),
-} = {}) {
+// Execute the pinned upstream services/editor, not another copy of their API.
+function fixture(t, { draft = "Keep my question" } = {}) {
+  const scope = new Context();
   const opened = [];
   const promptCalls = [];
-  const sessions = {
-    list: {
-      getSnapshot() {
-        return {
-          current,
-          byId: {
-            "chat-1": { title: "Chat one" },
-          },
-        };
-      },
-      subscribe() {
-        return () => {};
-      },
+  const input = new SessionInputShell({
+    actx: scope,
+    defaultSink: async (...args) => {
+      promptCalls.push(args);
+      return { kind: "success" };
     },
-    binding(sessionId) {
-      if (sessionId !== "chat-1") return undefined;
-      return {
-        session: {
-          async prompt(...args) {
-            promptCalls.push(args);
-            return prompt === undefined
-              ? { ok: true, value: undefined }
-              : await prompt(...args);
-          },
-        },
-      };
+    commandAttachments: {
+      serialize: async () => [],
+      release() {},
+      unsupportedNotice: () => "Unsupported attachments",
     },
-    scope,
-    open(sessionId) {
-      opened.push(sessionId);
-    },
-  };
-  return { opened, promptCalls, sessions };
-}
-
-function composerFixture({
-  draft = "Keep my question",
-  acceptImages = true,
-} = {}) {
-  const calls = [];
-  let currentDraft = draft;
-  let draftRev = 1;
-  let occurrences = [];
+  });
+  scope.on("slash/input-insert-text", ({ text, span }) =>
+    input.insertText(text, span) ? true : undefined);
+  scope.on("slash/input-consume-token", ({ guard }) =>
+    input.consumeToken(guard) ? true : undefined);
+  const service = new ConversationController(scope, {
+    input: { for: () => input },
+    blocks: {},
+    maxConcurrentFileUploads: 2,
+  });
+  const triggers = new InputTriggerService(scope);
+  const register = triggers.registerSource.bind(triggers);
   let source;
-  const input = {
-    state: {
-      getSnapshot() {
-        return {
-          draft: currentDraft,
-          draftRev,
-          occurrences,
-        };
-      },
-    },
-    addImages(ids) {
-      calls.push(["addImages", [...ids]]);
-      return acceptImages;
-    },
-    removeImage(id) {
-      calls.push(["removeImage", id]);
-    },
-    insertReference(reference, span) {
-      calls.push(["insertReference", reference, span]);
-      if (
-        span.draftRev !== draftRev ||
-        currentDraft.slice(span.start, span.end)
-          !== "@browser-comments"
-      ) {
-        return false;
-      }
-      const display = `@${reference.label}`;
-      currentDraft = currentDraft.slice(0, span.start)
-        + display
-        + " "
-        + currentDraft.slice(span.end);
-      occurrences = [{
-        source: reference.source,
-        ref: reference.ref,
-      }];
-      draftRev += 1;
-      return true;
-    },
-    setDraft(text) {
-      currentDraft = text;
-      draftRev += 1;
-      if (!text.includes("@1 annotation")) occurrences = [];
-      calls.push(["setDraft", text]);
-    },
+  triggers.registerSource = value => {
+    source = value;
+    return register(value);
   };
-  const service = {
-    input: {
-      for(scope) {
-        calls.push(["for", scope]);
-        return input;
-      },
-    },
-    createDraftImages(files) {
-      calls.push([
-        "createDraftImages",
-        files.map((file) => ({
-          name: file.name,
-          size: file.size,
-          type: file.type,
-        })),
-      ]);
-      return [{ id: "draft-image-1" }];
-    },
-    releaseDraftImages(images) {
-      calls.push([
-        "releaseDraftImages",
-        images.map(({ id }) => id),
-      ]);
-    },
+  const sessions = {
+    list: { getSnapshot: () => ({ current: "chat-1", byId: { "chat-1": {} } }) },
+    scope: id => id === "chat-1" ? scope : undefined,
+    binding: () => ({ session: { async prompt(...args) {
+      promptCalls.push(args);
+      return { ok: true };
+    } } }),
+    open: id => opened.push(id),
   };
-  const inputTriggers = {
-    registerSource(value) {
-      source = value;
-      calls.push(["registerSource", value.name]);
-      return () => {
-        calls.push(["unregisterSource", value.name]);
-        if (source === value) source = undefined;
-      };
-    },
-  };
+  const bridge = createAgentBrowserComposerBridge(sessions);
+  const disconnect = bridge.connect(service, triggers);
+  input.setDraft(draft);
+  t.after(() => {
+    disconnect();
+    for (const id of input.dispose()) service.releaseDraftAttachment(id);
+  });
   return {
-    calls,
-    currentDraft: () => currentDraft,
-    input,
-    inputTriggers,
-    service,
+    input, service, bridge, sessions, opened, promptCalls,
     source: () => source,
+    port: createAgentBrowserChatPort(sessions, bridge),
+    snapshot: () => input.state.getSnapshot(),
   };
 }
 
@@ -150,125 +70,113 @@ const screenshot = {
   data: "iVBORw0KGgo=",
   text: "# Browser comments\n\n### User Comment 1\n这是",
 };
+const target = { sessionId: "chat-1" };
 
-test("Agent Browser stages PNG and evidence in the selected Chat composer", async () => {
-  const target = sessionFixture();
-  const composer = composerFixture();
-  const bridge = createAgentBrowserComposerBridge(target.sessions);
-  bridge.connect(composer.service, composer.inputTriggers);
-  const port = createAgentBrowserChatPort(
-    target.sessions,
-    bridge,
-  );
+function addFileReference(input) {
+  const snapshot = input.state.getSnapshot();
+  assert.equal(input.insertReference({
+    source: "files", ref: "/workspace/design.md", label: "design.md",
+    clipboardText: "@/workspace/design.md", appearance: "file",
+  }, { start: snapshot.draft.length, end: snapshot.draft.length, draftRev: snapshot.draftRev }), true);
+  return input.state.getSnapshot().occurrences[0];
+}
 
-  await port.sendScreenshot(
-    screenshot,
-    { sessionId: "chat-1", title: "Chat one" },
-  );
-
-  assert.deepEqual(target.promptCalls, []);
-  assert.deepEqual(target.opened, ["chat-1"]);
-  assert.equal(
-    composer.currentDraft(),
-    "Keep my question\n\n@1 annotation ",
-  );
-  assert.deepEqual(composer.calls.slice(0, 5), [
-    ["registerSource", "browser-comments"],
-    ["for", { sessionId: "chat-1" }],
-    [
-      "createDraftImages",
-      [{
-        name: "minke-browser-comments.png",
-        size: 8,
-        type: "image/png",
-      }],
-    ],
-    ["addImages", ["draft-image-1"]],
-    [
-      "setDraft",
-      "Keep my question\n\n@browser-comments",
-    ],
-  ]);
-  const insert = composer.calls.find(
-    ([name]) => name === "insertReference",
-  );
-  assert.equal(insert[1].source, "browser-comments");
-  assert.equal(insert[1].label, "1 annotation");
-  assert.equal(
-    await composer.source().codec.serialize(
-      insert[1].ref,
-      new AbortController().signal,
-    ),
-    screenshot.text,
-  );
+test("Browser comments stage a PNG and reference using the pinned DSH composer", async t => {
+  const f = fixture(t);
+  await f.port.sendScreenshot(screenshot, target);
+  assert.deepEqual(f.promptCalls, []);
+  assert.deepEqual(f.opened, ["chat-1"]);
+  assert.equal(f.snapshot().draft, "Keep my question\n\n[1 annotation] ");
+  const [attachment] = f.service.resolveDraftAttachments(f.snapshot().attachmentIds);
+  assert.equal(attachment.kind, "image");
+  assert.equal(attachment.file.name, "minke-browser-comments.png");
+  assert.equal(attachment.file.type, "image/png");
+  assert.equal(attachment.file.size, 8);
+  const [reference] = f.snapshot().occurrences;
+  assert.equal(reference.source, "browser-comments");
+  assert.equal(reference.label, "1 annotation");
+  assert.equal(await f.source().codec.serialize(reference.ref, new AbortController().signal), screenshot.text);
 });
 
-test("Agent Browser falls back to direct prompt only without composer support", async () => {
-  const target = sessionFixture();
-  const port = createAgentBrowserChatPort(target.sessions, {
-    stage: () => false,
+test("appending multiple Browser comments preserves existing file and comment chips", async t => {
+  const f = fixture(t);
+  const file = addFileReference(f.input);
+  const originalDraft = f.snapshot().draft;
+  await f.port.sendScreenshot(screenshot, target);
+  const first = f.snapshot().occurrences[1];
+  await f.port.sendScreenshot(screenshot, target);
+  assert.equal(f.snapshot().draft.startsWith(originalDraft), true);
+  assert.equal(f.snapshot().occurrences.length, 3);
+  assert.deepEqual(f.snapshot().occurrences.slice(0, 2), [file, first]);
+  assert.equal(f.snapshot().attachmentIds.length, 2);
+  assert.equal(await f.source().codec.serialize(first.ref, new AbortController().signal), screenshot.text);
+  assert.deepEqual(f.promptCalls, []);
+});
+
+test("unavailable or disconnected composer keeps the handoff retryable without submitting", async t => {
+  const f = fixture(t);
+  for (const composer of [undefined, { stage: () => false }, createAgentBrowserComposerBridge(f.sessions)]) {
+    const port = createAgentBrowserChatPort(f.sessions, composer);
+    await assert.rejects(port.sendScreenshot(screenshot, target), /composer is not ready/u);
+  }
+  assert.deepEqual(f.promptCalls, []);
+  assert.deepEqual(f.opened, []);
+  assert.equal(f.snapshot().draft, "Keep my question");
+});
+
+test("staging does not materialize editors for unrelated historical sessions", async t => {
+  const f = fixture(t);
+  f.sessions.list.getSnapshot = () => ({
+    current: "chat-1", byId: { "chat-1": {}, unopened: {} },
   });
-
-  await port.sendScreenshot(
-    screenshot,
-    { sessionId: "chat-1" },
-  );
-
-  assert.equal(target.promptCalls.length, 1);
-  assert.equal(target.promptCalls[0][0][0].type, "image");
-  assert.equal(target.promptCalls[0][0][1].type, "text");
-  assert.equal(target.promptCalls[0][1], "queue");
-  assert.deepEqual(target.opened, ["chat-1"]);
+  const scope = f.sessions.scope;
+  f.sessions.scope = id => {
+    assert.equal(id, "chat-1", "unrelated session must not be resolved");
+    return scope(id);
+  };
+  await f.port.sendScreenshot(screenshot, target);
+  await f.port.sendScreenshot(screenshot, target);
+  assert.equal(f.snapshot().occurrences.length, 2);
 });
 
-test("busy supported composer releases the PNG and never auto-submits", async () => {
-  const target = sessionFixture();
-  const composer = composerFixture({ acceptImages: false });
-  const bridge = createAgentBrowserComposerBridge(target.sessions);
-  bridge.connect(composer.service, composer.inputTriggers);
-  const port = createAgentBrowserChatPort(
-    target.sessions,
-    bridge,
-  );
-
-  await assert.rejects(
-    port.sendScreenshot(screenshot, { sessionId: "chat-1" }),
-    /composer is busy/u,
-  );
-
-  assert.deepEqual(target.promptCalls, []);
-  assert.deepEqual(target.opened, []);
-  assert.deepEqual(
-    composer.calls.slice(-2),
-    [
-      ["addImages", ["draft-image-1"]],
-      ["releaseDraftImages", ["draft-image-1"]],
-    ],
-  );
+test("a busy composer releases the screenshot and preserves the draft", async t => {
+  const f = fixture(t, { draft: "/wait" });
+  assert.equal(f.input.beginCommand({
+    name: "wait", token: "/wait ", submit: () => new Promise(() => {}),
+  }, { start: 0, end: 5, draftRev: f.snapshot().draftRev }), true);
+  f.input.submit();
+  const before = f.snapshot();
+  const attachments = [];
+  const create = f.service.createDrafts.bind(f.service);
+  f.service.createDrafts = (...args) => {
+    const drafts = create(...args);
+    attachments.push(...drafts.map(({ id }) => id));
+    return drafts;
+  };
+  await assert.rejects(f.port.sendScreenshot(screenshot, target), /composer is busy/u);
+  assert.equal(f.snapshot().draft, before.draft);
+  assert.deepEqual(f.snapshot().attachmentIds, []);
+  assert.deepEqual(f.service.resolveDraftAttachments(attachments), []);
+  assert.deepEqual(f.promptCalls, []);
 });
 
-test("Browser comment evidence is purged after its chip leaves every draft", async () => {
-  const target = sessionFixture();
-  const composer = composerFixture({ draft: "" });
-  const bridge = createAgentBrowserComposerBridge(target.sessions);
-  bridge.connect(composer.service, composer.inputTriggers);
-  const port = createAgentBrowserChatPort(target.sessions, bridge);
+test("failed reference insertion rolls back only the appended text and screenshot", async t => {
+  const f = fixture(t);
+  addFileReference(f.input);
+  const before = f.snapshot();
+  f.input.insertReference = () => false;
+  await assert.rejects(f.port.sendScreenshot(screenshot, target), /changed before staging/u);
+  assert.equal(f.snapshot().draft, before.draft);
+  assert.deepEqual(f.snapshot().occurrences, before.occurrences);
+  assert.deepEqual(f.snapshot().attachmentIds, []);
+  assert.deepEqual(f.promptCalls, []);
+});
 
-  await port.sendScreenshot(screenshot, { sessionId: "chat-1" });
-  const first = composer.calls.find(
-    ([name]) => name === "insertReference",
-  )[1].ref;
-  composer.input.setDraft("");
-  await port.sendScreenshot(
-    { ...screenshot, text: `${screenshot.text}\n\n### User Comment 2\n什么` },
-    { sessionId: "chat-1" },
-  );
-
-  await assert.rejects(
-    composer.source().codec.serialize(
-      first,
-      new AbortController().signal,
-    ),
-    /no longer available/u,
-  );
+test("Browser comment evidence is purged after its chip leaves every draft", async t => {
+  const f = fixture(t, { draft: "" });
+  await f.port.sendScreenshot(screenshot, target);
+  const first = f.snapshot().occurrences[0].ref;
+  f.input.setDraft("");
+  await f.port.sendScreenshot(screenshot, target);
+  await assert.rejects(f.source().codec.serialize(first, new AbortController().signal), /no longer available/u);
 });

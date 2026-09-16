@@ -26,7 +26,7 @@ export const SETTINGS_TRIGGER_SELECTOR =
   '[data-slot="sidebar.settings"] button[aria-haspopup="dialog"][aria-expanded]';
 
 export const COMPOSER_INPUT_SELECTOR =
-  '[data-composer-card] textarea:not(:disabled):not([readonly])';
+  '[data-composer-card] [data-composer-input][contenteditable="true"]:not([aria-disabled="true"])';
 
 export const MODAL_SURFACE_SELECTOR = [
   "dialog[open]",

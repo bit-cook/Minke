@@ -100,18 +100,6 @@ export type HarnessRemoteResult =
     readonly error: HarnessRemoteError;
   };
 
-export type HarnessPromptContentPart =
-  | {
-      readonly type: "text";
-      readonly text: string;
-    }
-  | {
-      readonly type: "image";
-      readonly mediaType: "image/png";
-      readonly data: string;
-      readonly name?: string;
-    };
-
 export interface HarnessClientScopedContext {
   effect(
     callback: () => void | (() => void),
@@ -192,18 +180,9 @@ export interface HarnessClientContext {
       };
       subscribe(listener: () => void): () => void;
     };
-    binding(sessionId: string): {
-      readonly session: {
-        prompt(
-          content: HarnessPromptContentPart[],
-          mode: "queue" | "steer",
-          signal?: AbortSignal,
-        ): Promise<HarnessRemoteResult>;
-      };
-    } | undefined;
     /**
-     * Resolve a use-and-discard session scope. Optional for compatibility
-     * with older Harness builds that can still accept direct prompts.
+     * Resolve a use-and-discard session scope once the service is ready.
+     * Missing scope support leaves browser handoffs retryable in the UI.
      */
     scope?(sessionId: string): unknown;
     open(sessionId: string): void;
