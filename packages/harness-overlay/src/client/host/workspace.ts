@@ -116,7 +116,13 @@ function createHostCaller(connection: Connection): HostCaller {
       .then((result) =>
         parseMinkeHostCapabilities(
           rpcValue(result, "capabilities"),
-        ));
+        ))
+      .catch((error: unknown) => {
+        // Share an in-flight handshake, but let a later caller retry after
+        // connectivity recovers. Never retry the caller's actual operation.
+        ready = undefined;
+        throw error;
+      });
     return Promise.resolve(ready);
   };
   return async <Endpoint extends MinkeHostRpcEndpoint>(

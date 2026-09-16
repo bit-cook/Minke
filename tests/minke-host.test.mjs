@@ -1918,6 +1918,55 @@ test("browser workspace adapters project Host Files without Electron", async () 
   );
 });
 
+test("browser Host retries a failed handshake and shares each attempt across callers", async () => {
+  const failed = Promise.withResolvers();
+  const recovered = Promise.withResolvers();
+  const calls = [];
+  let attempts = 0;
+  const files = browserFilesPort({
+    rpc: {
+      async call(_channel, endpoint) {
+        calls.push(endpoint);
+        if (endpoint === "capabilities") {
+          return await (++attempts === 1 ? failed.promise : recovered.promise);
+        }
+        return { ok: true, value: { path: "/host/home", entries: [], truncated: false } };
+      },
+    },
+  }, memoryStorage());
+
+  const first = [files.list({}), files.list({})];
+  const failures = first.map(request => assert.rejects(request, /offline/u));
+  assert.equal(attempts, 1);
+  failed.reject(new Error("offline"));
+  await Promise.all(failures);
+
+  const retries = [files.list({}), files.list({})];
+  // Attach rejection handlers before asserting so a broken cache has no
+  // unhandled rejection and fails at the observable connection attempt.
+  const outcomes = Promise.allSettled(retries);
+  recovered.resolve({ ok: true, value: hostCapabilities() });
+  assert.equal(attempts, 2, "recovery must issue a fresh capability handshake");
+  assert.equal((await outcomes).every(result => result.status === "fulfilled"), true);
+  await files.list({});
+  assert.deepEqual(calls, ["capabilities", "capabilities", "files.list", "files.list", "files.list"]);
+});
+
+test("browser Host never replays a failed file write after a successful handshake", async () => {
+  const calls = [];
+  const files = browserFilesPort({
+    rpc: {
+      async call(_channel, endpoint) {
+        calls.push(endpoint);
+        if (endpoint === "capabilities") return { ok: true, value: hostCapabilities() };
+        throw new Error("connection lost after write admission");
+      },
+    },
+  }, memoryStorage());
+  await assert.rejects(files.write({ path: "/host/home/notes.txt", content: "edited", expectedVersion: `sha256:${"a".repeat(64)}` }), /connection lost/u);
+  assert.deepEqual(calls, ["capabilities", "files.write"]);
+});
+
 test("browser Terminal port long-polls Host output and closes settled sessions", async () => {
   const calls = [];
   const closed = Promise.withResolvers();
