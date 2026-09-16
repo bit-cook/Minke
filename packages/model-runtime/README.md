@@ -8,7 +8,9 @@ The package exposes three interfaces:
 - `@lencx/minke-model-runtime/contract` — renderer-safe settings values and parsers shared across desktop processes;
 - `@lencx/minke-model-runtime/dsh` — the DeepSeek Harness adapter composed by Minke's product overlay.
 
-The DSH adapter translates `ctx.subprocess`, `ctx.credentials`, the launch environment, and `llm/stream` events into the core host interface. It mounts the upstream `@deepseek-ai/dsh-llm-pi-ai` plugin only after configured local services are ready.
+The DSH adapter translates `ctx.subprocess`, `ctx.credentials`, the launch environment, and `llm/stream` events into the core host interface. It mounts the upstream `@deepseek-ai/dsh-llm-pi-ai` plugin before discovering local services in parallel, so saved cloud-provider settings are available without waiting for local startup. Discovered providers are published as a base layer without writing user settings. Local initialization failures are logged and leave cloud routes available; disposal waits for discovery and releases any owned processes.
+
+Requests wait only for updates to their own local service, and a cancelled request stops waiting immediately without cancelling the shared update. A running LM Studio or Ollama service with a valid empty model catalog counts as ready for auto-start acknowledgement; it does not publish an empty model provider.
 
 LM Studio supports `external`, `ensure-running`, and `managed` lifecycles. Ollama supports `external` and `ensure-running`. Generic loopback OpenAI-compatible providers remain discovery-only and do not gain process ownership.
 

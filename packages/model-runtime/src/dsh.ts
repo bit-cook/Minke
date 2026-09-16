@@ -31,6 +31,8 @@ import {
 import {
   installModelRuntimeControl,
   LiveModelRuntime,
+  modelRuntimeProviderIds,
+  waitForModelRuntime,
   type CommitModelRuntimeProviders,
 } from "./live.ts";
 import {
@@ -302,26 +304,15 @@ async function updatePiAiProviders(
 }
 
 /**
- * Prepare local model services, mount the upstream configurable LLM adapter,
- * and bind only plugin-owned processes to this DSH fiber's lifetime.
+ * Mount configured model routes first, then discover local services in the
+ * background. Only requests owned by those services wait for their readiness.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const prepared = await LiveModelRuntime.create(
-    config,
-    createHost(ctx, config),
-  );
-  ctx.effect(
-    () => async () => await prepared.dispose(),
-    "model-runtime service cleanup",
-  );
-  ctx.on("llm/stream", (options, next) =>
-    preparedStream(prepared, options, next)
-  );
-  let committedProviders = prepared.providers;
+  let committedProviders: LiveModelRuntime["providers"] = {};
   const adapterFiber = ctx.plugin(LlmPiAi, {
     providers: committedProviders,
   });
-  await adapterFiber;
+  await adapterFiber.await();
   const commit: CommitModelRuntimeProviders =
     async (providers) => {
       const previous = committedProviders;
@@ -340,5 +331,44 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
       committedProviders = providers;
     };
-  installModelRuntimeControl(ctx, prepared, commit);
+  let disposed = false;
+  const ready = LiveModelRuntime.create(config, createHost(ctx, config))
+    .then(async (prepared) => {
+      if (!disposed && Object.keys(prepared.providers).length > 0) {
+        try {
+          await commit(prepared.providers);
+        } catch (error) {
+          await prepared.dispose();
+          throw error;
+        }
+      }
+      return prepared;
+    });
+  // Keep the child adapter alive until any in-flight publication and owned
+  // service cleanup finish. Cordis disposes effects in reverse order.
+  ctx.effect(() => async () => {
+    disposed = true;
+    const prepared = await ready.catch(() => undefined);
+    await prepared?.dispose();
+  }, "model-runtime service cleanup");
+  void ready.catch((error: unknown) => {
+    if (!disposed) {
+      ctx.logger.warn(`model-runtime: local service initialization failed: ${String(error)}`);
+    }
+  });
+  const ownedProviders = new Set(modelRuntimeProviderIds(config));
+  ctx.on("llm/stream", (options, next) => {
+    if (!ownedProviders.has(options.provider)) return next();
+    return preparedStream({
+      async prepareRequest(request) {
+        const prepared = await waitForModelRuntime(ready, request.signal);
+        await prepared.prepareRequest(request);
+      },
+    }, options, next);
+  });
+  installModelRuntimeControl(ctx, {
+    async reconfigure(...args) {
+      await (await ready).reconfigure(...args);
+    },
+  }, commit);
 }

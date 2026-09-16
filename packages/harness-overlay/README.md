@@ -15,7 +15,7 @@ Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.1.6-a
 
 Then restart Minke and enable the matching disabled tool row in a copied Agent Preset. The Bundle owns its pinned platform CLI, provider configuration, and private runtime closure.
 
-The model runtime executes CLIs through `ctx.subprocess`, resolves credential references through `ctx.credentials`, and mounts the upstream `@deepseek-ai/dsh-llm-pi-ai` plugin after service preparation. Discovered provider metadata is only the composition base layer; it is never serialized to `settings.yaml`, and user model settings continue to override it. Secrets are resolved for discovery but never copied into provider profiles.
+The model runtime executes CLIs through `ctx.subprocess`, resolves credential references through `ctx.credentials`, and mounts the upstream `@deepseek-ai/dsh-llm-pi-ai` plugin before discovering local services in parallel. Cloud routes remain available during local startup and auto-start updates. Discovered provider metadata is only the composition base layer; it is never serialized to `settings.yaml`, and user model settings continue to override it. Secrets are resolved for discovery but never copied into provider profiles.
 
 The independent `@lencx/minke-harness-overlay/web-search` Host entry registers
 the credential-free `minke_web_search` model tool. It does not register a

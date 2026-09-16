@@ -1,5 +1,5 @@
 - id: llm-pi-ai
-  # model-runtime mounts this adapter after local services are prepared. The
+  # model-runtime mounts this adapter before background local discovery. The
   # nested instance keeps the same settings namespace and user-settings layer.
   disabled: true
 

@@ -100,6 +100,7 @@ const taskFiles = Object.freeze({
     "local-model-settings.test.mjs",
     "minke-host.test.mjs",
     "model-runtime.test.mjs",
+    "model-runtime-startup.test.mjs",
     "remote.test.mjs",
     "discord-network.test.mjs",
     "remote-hub.test.mjs",
