@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import {
   prepareModelRuntime,
   resolveLocalOpenAIBaseURL,
@@ -71,6 +72,181 @@ function createHost(options = {}) {
     },
   };
 }
+
+for (const lifecycle of ["external", "ensure-running", "managed"]) {
+  test(`LM Studio ${lifecycle} reuses a running service with an empty catalog`, async () => {
+    const { host, commands } = createHost({
+      run: async () => commandResult(JSON.stringify({ running: true, port: 1234 })),
+      fetch: async (input) => json(String(input).endsWith("/api/v1/models")
+        ? { models: [] } : { data: [] }),
+    });
+    const prepared = await prepareModelRuntime({
+      lmStudio: { enabled: true, lifecycle },
+    }, host);
+    assert.deepEqual(prepared.providers, {});
+    assert.deepEqual(prepared.servicesReady, ["lm-studio"]);
+    await prepared.dispose();
+    assert.equal(commands.some(({ args }) => args[1] === "start" || args[1] === "stop"), false);
+  });
+}
+
+test("LM Studio auto-start accepts an empty catalog and acknowledges the preference once", async () => {
+  let running = false;
+  const { host, commands } = createHost({
+    run: async (_candidates, args) => {
+      if (args[1] === "start") running = true;
+      return commandResult(JSON.stringify({ running, port: 1234 }));
+    },
+    fetch: async () => {
+      if (!running) throw new Error("connection refused");
+      return json({ data: [] });
+    },
+  });
+  const live = await LiveModelRuntime.create({
+    lmStudio: { enabled: true, lifecycle: "external" },
+  }, host);
+  try {
+    const settings = { lmStudio: { enabled: true }, ollama: { enabled: false } };
+    const published = [];
+    await live.reconfigure(settings, async providers => { published.push(providers); }, "apply", "lmStudio");
+    await live.reconfigure(settings, async () => {}, "apply", "lmStudio");
+    assert.equal(running, true);
+    assert.deepEqual(published, [{}]);
+    assert.equal(commands.filter(({ args }) => args[1] === "start").length, 1);
+  } finally {
+    await live.dispose();
+  }
+  assert.equal(running, true, "ensure-running keeps the shared LM Studio service alive");
+});
+
+test("managed empty LM Studio retains cleanup of its owned service", async () => {
+  let running = false;
+  const { host } = createHost({
+    run: async (_candidates, args) => {
+      if (args[1] === "start") running = true;
+      if (args[1] === "stop") running = false;
+      return commandResult(JSON.stringify({ running, port: 1234 }));
+    },
+    fetch: async () => {
+      if (!running) throw new Error("connection refused");
+      return json({ data: [] });
+    },
+  });
+  const prepared = await prepareModelRuntime({
+    lmStudio: { enabled: true, lifecycle: "managed" },
+  }, host);
+  assert.deepEqual(prepared.servicesReady, ["lm-studio"]);
+  assert.equal(running, true);
+  await prepared.dispose();
+  assert.equal(running, false);
+});
+
+test("LM Studio cannot acknowledge auto-start from CLI status alone or an invalid catalog", async () => {
+  const { host } = createHost({
+    run: async () => commandResult(JSON.stringify({ running: true, port: 1234 })),
+    fetch: async () => json({ error: "authentication required" }),
+  });
+  const live = await LiveModelRuntime.create({
+    lmStudio: { enabled: true, lifecycle: "external" },
+  }, host);
+  try {
+    await assert.rejects(live.reconfigure(
+      { lmStudio: { enabled: true }, ollama: { enabled: false } },
+      async () => assert.fail("invalid service must not be published"),
+      "apply", "lmStudio",
+    ), /without a ready service/u);
+  } finally {
+    await live.dispose();
+  }
+});
+
+test("an Ollama update only holds Ollama requests, including cancellation while waiting", async () => {
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const preparedRequests = [];
+  const live = await LiveModelRuntime.create({
+    lmStudio: { enabled: true, lifecycle: "external" },
+    ollama: { enabled: true, lifecycle: "external" },
+  }, {}, async config => {
+    if (config.ollama?.lifecycle === "ensure-running") {
+      entered.resolve();
+      await release.promise;
+    }
+    const provider = config.lmStudio ? "lm-studio" : config.ollama ? "ollama" : undefined;
+    return {
+      providers: {}, servicesReady: provider ? [provider] : [],
+      prepareRequest: async request => {
+        if (request.provider === provider) preparedRequests.push(provider);
+      },
+      dispose: async () => {},
+    };
+  });
+  const updating = live.reconfigure(
+    { lmStudio: { enabled: false }, ollama: { enabled: true } },
+    async () => {}, "apply", "ollama",
+  );
+  await entered.promise;
+  const finished = new Set();
+  const requests = ["deepseek", "lm-studio", "ollama"].map(provider =>
+    live.prepareRequest({ provider, model: "fixture" }).then(() => finished.add(provider)));
+  const cancellation = new AbortController();
+  const cancelled = live.prepareRequest({ provider: "ollama", model: "fixture", signal: cancellation.signal });
+  const rejection = assert.rejects(cancelled, { name: "AbortError" });
+  let abortFinished = false;
+  void cancelled.catch(() => { abortFinished = true; });
+  cancellation.abort();
+  try {
+    await nextTurn();
+    assert.deepEqual([...finished].sort(), ["deepseek", "lm-studio"]);
+    assert.equal(abortFinished, true, "cancellation must not wait for service startup");
+    assert.deepEqual(preparedRequests, ["lm-studio"]);
+  } finally {
+    release.resolve();
+    await Promise.allSettled([updating, ...requests, rejection]);
+    await live.dispose();
+  }
+  await rejection;
+  assert.equal(finished.has("ollama"), true);
+  assert.deepEqual(preparedRequests, ["lm-studio", "ollama"]);
+});
+
+test("initial local services prepare concurrently", async () => {
+  const release = Promise.withResolvers();
+  const started = [];
+  const creating = LiveModelRuntime.create({
+    lmStudio: { enabled: true }, ollama: { enabled: true },
+  }, {}, async config => {
+    const id = config.lmStudio ? "lmStudio" : config.ollama ? "ollama" : "custom";
+    started.push(id);
+    await release.promise;
+    return { providers: {}, prepareRequest: async () => {}, dispose: async () => {} };
+  });
+  try {
+    await nextTurn();
+    assert.deepEqual(started, ["lmStudio", "ollama", "custom"]);
+  } finally {
+    release.resolve();
+    await (await creating).dispose();
+  }
+});
+
+test("failed parallel initialization cleans up services that finish after the failure", async () => {
+  const release = Promise.withResolvers();
+  const disposed = [];
+  const creating = LiveModelRuntime.create({
+    lmStudio: { enabled: true }, ollama: { enabled: true },
+  }, {}, async config => {
+    if (config.lmStudio) throw new Error("invalid LM Studio configuration");
+    const id = config.ollama ? "ollama" : "custom";
+    if (config.ollama) await release.promise;
+    return { providers: {}, prepareRequest: async () => {}, dispose: async () => { disposed.push(id); } };
+  });
+  const rejection = assert.rejects(creating, /invalid LM Studio configuration/u);
+  await nextTurn();
+  release.resolve();
+  await rejection;
+  assert.deepEqual(disposed.sort(), ["custom", "ollama"]);
+});
 
 test("product-owned model CLIs receive explicit Node-control tombstones", () => {
   assert.deepEqual(

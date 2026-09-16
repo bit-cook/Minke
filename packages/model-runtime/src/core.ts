@@ -979,13 +979,16 @@ async function discoverLmStudioModels(
   baseURL: string,
   token: string | undefined,
   contextOverride: number | undefined,
-): Promise<ModelProfile[]> {
+): Promise<ModelProfile[] | undefined> {
   const endpoint = new URL(baseURL);
   const [openAI, detailed, states] = await Promise.all([
     fetchListing(host, `${baseURL}/models`, token),
     fetchListing(host, `${endpoint.origin}/api/v0/models`, token),
     fetchLmStudioModelStates(host, endpoint.origin, token),
   ]);
+  // A valid empty catalog proves readiness just as a populated one does.
+  // The optional v0 metadata endpoint alone cannot establish a usable API.
+  if (openAI === undefined && states === undefined) return undefined;
   return mergeLmStudioListings(openAI, detailed, states).map((profile) =>
     effectiveLmStudioContext(profile, states, contextOverride)
   );
@@ -1122,23 +1125,27 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
       status: LmStudioStatus | undefined,
     ): Promise<{ baseURL: string; models: ModelProfile[] } | undefined> => {
       const discovered = await Promise.all(
-        candidates(status).map(async (baseURL) => ({
-          baseURL,
-          models: await discoverLmStudioModels(
+        candidates(status).map(async (baseURL) => {
+          const models = await discoverLmStudioModels(
             host,
             baseURL,
             nonEmptyText(token),
             contextOverride,
-          ),
-        })),
+          );
+          return models === undefined ? undefined : { baseURL, models };
+        }),
       );
-      return discovered.find(({ models }) => models.length > 0);
+      return discovered.find((entry) => entry !== undefined && entry.models.length > 0)
+        ?? discovered.find((entry) => entry !== undefined);
     };
     const preparedProvider = (
       selected: { baseURL: string; models: ModelProfile[] },
       canReloadModels: boolean,
       dispose: () => Promise<void>,
     ): PreparedAdapter => {
+      if (selected.models.length === 0) {
+        return { serviceReady: true, dispose };
+      }
       const contextGate =
         contextOverride === undefined
           ? undefined

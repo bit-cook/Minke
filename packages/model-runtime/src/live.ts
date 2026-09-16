@@ -58,6 +58,31 @@ const LOCAL_RUNTIME_NAMES = {
   ollama: "Ollama",
 } as const satisfies Record<LocalModelRuntimeId, string>;
 
+/** Configured route ownership also covers temporarily unavailable services. */
+export function modelRuntimeProviderIds(config: ModelRuntimeConfig): string[] {
+  return [
+    ...(config.lmStudio === undefined ? [] : [LOCAL_PROVIDER_IDS.lmStudio]),
+    ...(config.ollama === undefined ? [] : [LOCAL_PROVIDER_IDS.ollama]),
+    ...(config.openAICompatible ?? []).map(({ id }) => id),
+  ];
+}
+
+/** Cancel one caller's wait without cancelling the shared service operation. */
+export async function waitForModelRuntime<Value>(
+  operation: Promise<Value>,
+  signal?: AbortSignal,
+): Promise<Value> {
+  signal?.throwIfAborted();
+  if (signal === undefined) return await operation;
+  return await new Promise<Value>((resolve, reject) => {
+    const abort = (): void => { reject(signal.reason); };
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort);
+    });
+  });
+}
+
 function cloneConfig(
   config: ModelRuntimeConfig,
 ): ModelRuntimeConfig {
@@ -240,6 +265,7 @@ export class LiveModelRuntime {
     RuntimeComponent
   >();
   readonly #retained = new Set<PreparedModelRuntime>();
+  readonly #updates = new Map<RuntimeComponentId, Promise<void>>();
   #tail: Promise<void> = Promise.resolve();
   #disposeRequested = false;
   #disposed = false;
@@ -263,13 +289,27 @@ export class LiveModelRuntime {
     assertUniqueConfiguredProviders(config);
     const runtime = new LiveModelRuntime(host, prepare);
     try {
-      for (const id of COMPONENT_IDS) {
-        const selected = componentConfig(config, id);
-        runtime.#components.set(id, {
-          config: selected,
-          prepared: await prepare(selected, host),
-          active: true,
-        });
+      const outcomes = await Promise.allSettled(
+        COMPONENT_IDS.map(async (id) => {
+          const selected = componentConfig(config, id);
+          return [id, {
+            config: selected,
+            prepared: await prepare(selected, host),
+            active: true,
+          }] as const;
+        }),
+      );
+      const failures: unknown[] = [];
+      for (const outcome of outcomes) {
+        if (outcome.status === "fulfilled") {
+          runtime.#components.set(...outcome.value);
+        } else {
+          failures.push(outcome.reason);
+        }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "model-runtime: initialization failed");
       }
       mergedProviders(runtime.#components);
       return runtime;
@@ -297,16 +337,29 @@ export class LiveModelRuntime {
     return mergedProviders(this.#components);
   }
 
-  /** Prepare a request against the generation active after pending updates. */
+  /** Wait only for the request's owning service, leaving other routes usable. */
   async prepareRequest(
     request: ModelRuntimeRequest,
   ): Promise<void> {
-    await this.#tail;
-    if (this.#disposed) {
+    request.signal?.throwIfAborted();
+    if (this.#disposeRequested) {
       throw new Error("model-runtime: live runtime is disposed");
     }
-    for (const component of this.#components.values()) {
-      if (!component.active) continue;
+    const owner = [...this.#components].find(([, component]) =>
+      modelRuntimeProviderIds(component.config).includes(request.provider))?.[0];
+    if (owner === undefined) return;
+    let pending: Promise<void> | undefined;
+    while ((pending = this.#updates.get(owner)) !== undefined) {
+      // Reconfiguration restores its previous generation on failure; requests
+      // can still use that generation once reconciliation has settled.
+      await waitForModelRuntime(pending.catch(() => undefined), request.signal);
+    }
+    request.signal?.throwIfAborted();
+    if (this.#disposeRequested) {
+      throw new Error("model-runtime: live runtime is disposed");
+    }
+    const component = this.#components.get(owner);
+    if (component?.active) {
       await component.prepared.prepareRequest(request);
     }
   }
@@ -335,6 +388,16 @@ export class LiveModelRuntime {
       }
       await this.#reconfigure(settings, commit, mode, runtimeId);
     });
+    const affected = runtimeId === undefined
+      ? ["lmStudio", "ollama"] as const
+      : [runtimeId];
+    for (const id of affected) this.#updates.set(id, operation);
+    const clear = (): void => {
+      for (const id of affected) {
+        if (this.#updates.get(id) === operation) this.#updates.delete(id);
+      }
+    };
+    void operation.then(clear, clear);
     this.#tail = operation.catch(() => undefined);
     return operation;
   }
