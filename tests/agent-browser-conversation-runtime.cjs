@@ -927,6 +927,13 @@ async function run() {
       },
     );
     await window.loadURL(harnessEndpoint.authenticatedUrl);
+    // Exercise a displayed UI like the application does. A permanently hidden
+    // embedder can suspend retained-tab layout on hosted macOS runners.
+    window.showInactive();
+    await waitFor(
+      () => rendererValue(window, `() => document.visibilityState === 'visible'`),
+      'the displayed Harness window',
+    );
     trace('production renderer loaded');
     await waitFor(
       () => rendererValue(
