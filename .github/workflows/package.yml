@@ -76,6 +76,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes fakeroot rpm
 
+      # Match the pinned DSH CI environment: restricted PTC execution needs
+      # bubblewrap and permission to create namespaces on the hosted runner.
+      - name: Prepare Linux sandbox
+        if: runner.os == 'Linux'
+        run: bash vendor/deepseek-harness/scripts/prepare-ci-bubblewrap.sh
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

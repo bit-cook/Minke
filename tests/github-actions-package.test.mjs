@@ -81,6 +81,15 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   assert.match(source, /persist-credentials:\s*false/u);
   assert.match(
     source,
+    /name:\s*Prepare Linux sandbox\s*\n\s*if:\s*runner\.os == 'Linux'\s*\n\s*run:\s*bash vendor\/deepseek-harness\/scripts\/prepare-ci-bubblewrap\.sh/u,
+  );
+  assert.ok(
+    source.indexOf("- name: Prepare Linux sandbox") <
+      source.indexOf("- name: Stage Harness runtime"),
+    "Linux sandbox preparation must precede runtime staging and validation",
+  );
+  assert.match(
+    source,
     /uses:\s*pnpm\/action-setup@0e279bb959325dab635dd2c09392533439d90093\s+# v6\.0\.8/u,
   );
   assert.match(
