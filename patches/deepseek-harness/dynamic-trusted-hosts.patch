@@ -1,8 +1,9 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
-index d78f1ff..a286098 100644
 --- a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
-@@ -538,2 +538,9 @@ var HostConnectionService = class extends Service {
+@@ -536,6 +536,13 @@
+ 		this.trustedHosts = trustedHosts;
+ 		this.browserAuth = browserAuth;
  	}
 +	/** Atomically replace the deployment authorities used by live routes. */
 +	replaceTrustedHosts(trustedHosts) {
@@ -12,8 +13,14 @@ index d78f1ff..a286098 100644
 +		);
 +	}
  	/** Generic channel registry scoped to the Context reading this service. */
-@@ -751,3 +758,3 @@ async function apply(ctx, config) {
+ 	get rpc() {
+ 		const owner = this.ctx;
+@@ -749,7 +756,7 @@
+ */
+ async function apply(ctx, config) {
  	const recovery = resolveConnectionConfig(config?.recovery);
 -	const trustedHosts = config?.trustedHosts ?? [];
 +	const trustedHosts = [...(config?.trustedHosts ?? [])];
  	const cookieMaxAgeDays = config?.cookieMaxAgeDays ?? 30;
+ 	const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? 314572800;
+ 	for (const entry of trustedHosts) assertTrustedAuthority(entry);

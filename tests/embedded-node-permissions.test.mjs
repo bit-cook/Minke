@@ -54,7 +54,7 @@ const projectRoot = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
 );
 
-const subprocessRunnerChunk = "runner-launch-COYGu0Dl.js";
+const subprocessRunnerChunk = "runner-launch-BnjugUhn.js";
 
 async function preparePatchedHarnessEnvironment(runtimeRoot) {
   await writeFile(
@@ -79,6 +79,14 @@ async function preparePatchedHarnessEnvironment(runtimeRoot) {
       `vendor/deepseek-harness/packages/subprocess/subprocess-local/lib/${subprocessRunnerChunk}`,
     ],
     [
+      "node_modules/@deepseek-ai/dsh-subprocess-local/lib/output.js",
+      "vendor/deepseek-harness/packages/subprocess/subprocess-local/lib/output.js",
+    ],
+    [
+      "node_modules/@deepseek-ai/dsh-subprocess/lib/control.js",
+      "vendor/deepseek-harness/packages/subprocess/subprocess/lib/control.js",
+    ],
+    [
       "node_modules/@deepseek-ai/dsh-web-app/lib/index.js",
       "vendor/deepseek-harness/packages/bundle/web-app/lib/index.js",
     ],
@@ -89,8 +97,9 @@ async function preparePatchedHarnessEnvironment(runtimeRoot) {
   ]);
   for (const [packageName, sourceRoot, files] of [
     ["dsh-sandbox-local", "packages/sandbox/sandbox-local", ["lib/index.js"]],
-    ["dsh-experimental-code-runtime-python", "packages/experimental/code-runtime-python", ["lib/index.js"]],
-    ["dsh", "apps/cli", ["lib/plugin-Ddi42qoW.js", "lib/types/plugin.js"]],
+    ["dsh-ptc-runtime-node", "packages/ptc-runtime/ptc-runtime-node", ["lib/index.js"]],
+    ["dsh-experimental-ptc-runtime-python", "packages/experimental/ptc-runtime-python", ["lib/index.js"]],
+    ["dsh", "apps/cli", ["lib/plugin-Bk_PbPwP.js", "lib/types/plugin.js"]],
     ["node-addon-system", "native/system/packages/entry", ["lib/index.js"]],
   ]) {
     for (const file of files) {
@@ -368,6 +377,8 @@ async function withPatchedSubprocessLaunches(runtimeRoot, callback) {
           "vendor/deepseek-harness/packages/util/http-proxy/lib/index.js")).href;
       } else if (specifier === "@deepseek-ai/dsh-subprocess") {
         url = subprocessUrl;
+      } else if (specifier === "@deepseek-ai/dsh-subprocess/control") {
+        url = new URL("./control.js", subprocessUrl).href;
       } else if (specifier === "@deepseek-ai/dsh-timeout") {
         url = stub("export const MAX_TIMER_DELAY_MS = 2147483647;");
       } else if (specifier === "koffi") {
@@ -403,7 +414,7 @@ async function withPatchedSubprocessLaunches(runtimeRoot, callback) {
   }
 }
 
-test("native subprocess runners preserve embedded Node launch boundaries", async () => {
+test("native subprocess runners preserve embedded Node launch boundaries", { timeout: 10_000 }, async () => {
   await withTemporaryDirectory(async (runtimeRoot) => {
     const bootstrap = join(runtimeRoot, "node-environment-bootstrap.cjs");
     const executable = join(runtimeRoot, "Minke Electron");
@@ -462,6 +473,7 @@ test("native subprocess runners preserve embedded Node launch boundaries", async
             const handle = runtime.spawn(spec);
             child.emit("spawn");
             child.emit("message", { type: "target-exit", exitCode: 0 });
+            child.emit("exit", 0, null);
             child.emit("close", 0, null);
             assert.equal((await handle.done).exitCode, 0);
             await handle.waitForExit();
@@ -1072,13 +1084,24 @@ test("every process.execPath production seam remains classified", async () => {
       "vendor/deepseek-harness/packages/fs/tool-fs-search/src/search-core.ts",
     ],
     managedHarnessRuntime: [
+      // The upstream desktop app is not part of Minke's runtime closure.
+      "vendor/deepseek-harness/apps/desktop/src/main.ts",
       "vendor/deepseek-harness/packages/sdk/client/src/launch.ts",
+    ],
+    remoteRuntimeMetadata: [
+      // Reports the remote helper's own Node path; does not launch local Electron.
+      "vendor/deepseek-harness/packages/ssh/ssh/src/helper.ts",
     ],
     patchedDesktopHelpers: [
       "vendor/deepseek-harness/packages/host/directory-picker-native/src/win32-dialog-host.ts",
     ],
     runtimeLaunchers: [
       "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
+      // MCP's child_process spawn uses Minke's installed Node bootstrap.
+      "vendor/deepseek-harness/packages/experimental/browser-use-chrome-devtools-mcp/src/index.ts",
+      "vendor/deepseek-harness/packages/experimental/browser-use-playwright-mcp/src/index.ts",
+      // PTC launches through the patched subprocess provider, including control FD 3.
+      "vendor/deepseek-harness/packages/ptc-runtime/ptc-runtime-node/src/index.ts",
       "vendor/deepseek-harness/packages/sandbox/sandbox-local/src/index.ts",
       "vendor/deepseek-harness/packages/subagent/subagent-codex/src/run.ts",
       "vendor/deepseek-harness/packages/subprocess/subprocess-local/src/runner-launch.ts",
@@ -1102,11 +1125,8 @@ test("every process.execPath production seam remains classified", async () => {
     packerManifest.name,
     "@deepseek-ai/dsh-experimental-webworker-packer",
   );
-  assert.equal(
-    packerManifest.private,
-    true,
-    "repository composition is a private build-time Node seam",
-  );
+  assert.deepEqual(packerManifest.bin, { "dsh-pack-vfs-image": "./bin.js" },
+    "repository composition remains an explicit build-time packer command");
 
   const { resolveDshLaunch } = await import(
     new URL(
@@ -1140,6 +1160,7 @@ test("every process.execPath production seam remains classified", async () => {
   }
   assert.deepEqual(sharedScrubOwners.sort(), [
     "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
+    "vendor/deepseek-harness/packages/experimental/browser-use-stagehand-native/src/launch.ts",
     "vendor/deepseek-harness/packages/host/open-in-app/src/resolver.ts",
     "vendor/deepseek-harness/packages/mcp/mcp-client/src/transport.ts",
     "vendor/deepseek-harness/packages/sdk/client/src/types.ts",
@@ -1229,6 +1250,7 @@ test("every process.execPath production seam remains classified", async () => {
   );
   assert.deepEqual([...environmentPatch.targets].sort(), [
     "node_modules/@deepseek-ai/dsh-native-command/lib/index.js",
+    "node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js",
     "node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js",
     "node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js",
     `node_modules/@deepseek-ai/dsh-subprocess-local/lib/${subprocessRunnerChunk}`,

@@ -10,7 +10,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js b/node
  import { z as z$1 } from "zod";
  //#region lib/types/api-path.js
  /**
-@@ -615,7 +615,10 @@
+@@ -622,7 +622,10 @@
  				await bridge(req, res, fetchHandler);
  			}
  		};

@@ -633,7 +633,7 @@ export async function verifyHarnessContract(projectRoot) {
     settingsControllerSource,
     llmTypesSource,
     attachmentSource,
-    deepSeekAdapterSource,
+    deepSeekConfigSource,
     settingsSlotsSource,
     settingsRootSource,
     sidebarSource,
@@ -758,7 +758,7 @@ export async function verifyHarnessContract(projectRoot) {
         "llm",
         "llm-deepseek",
         "src",
-        "index.ts",
+        "config.ts",
       ),
       "utf8",
     ),
@@ -991,7 +991,7 @@ export async function verifyHarnessContract(projectRoot) {
     "Harness batch image attachment API changed; review MCP/ACP image persistence.",
   );
   requireSourceSeam(
-    deepSeekAdapterSource,
+    deepSeekConfigSource,
     "reasoningEffort?: 'off' | 'low' | 'high' | 'max'",
     "Harness DeepSeek low reasoning-effort API changed.",
   );

@@ -1,8 +1,9 @@
 diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
-index cf55cf3..cfef001 100644
 --- a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
-@@ -74,6 +74,19 @@ async function closeThreadWindows(threadId) {
+@@ -72,10 +72,23 @@
+ * @returns the spawned child process.
+ */
  function spawnDialogWorker(data) {
 +	const nodeExecutable = process.env.MINKE_NODE_EXECUTABLE;
 +	if (nodeExecutable === void 0 || nodeExecutable === "") throw new Error("Minke managed Node executable is unavailable");
@@ -24,23 +25,31 @@ index cf55cf3..cfef001 100644
 +	env.ELECTRON_RUN_AS_NODE = "1";
 +	env.DSH_DIALOG_TITLE = data.title;
  	const stdio = [
-@@ -85,3 +98,3 @@ function spawnDialogWorker(data) {
+ 		"ignore",
+ 		"inherit",
+@@ -83,12 +96,14 @@
+ 		"ipc"
+ 	];
  	/* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/) */
 -	if (!import.meta.url.endsWith(".ts")) return spawn(process.execPath, [fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
 +	if (!import.meta.url.endsWith(".ts")) return spawn(nodeExecutable, ["--require", bootstrap, fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
  		env,
-@@ -90,3 +103,5 @@ function spawnDialogWorker(data) {
+ 		stdio,
+ 		windowsHide: true
  	});
 -	return spawn(process.execPath, [
 +	return spawn(nodeExecutable, [
 +		"--require",
 +		bootstrap,
  		"--import",
+ 		import.meta.resolve("tsx/esm"),
+ 		fileURLToPath(new URL("./win32-dialog-worker.ts", import.meta.url))
 diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
-index a7bb479..b22769a 100644
 --- a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
 +++ b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
-@@ -227,5 +227,6 @@ const send = process.send.bind(process);
+@@ -225,9 +225,10 @@
+ if (process.send === void 0) throw new Error("win32-dialog-worker must run as a child process with an IPC channel");
+ const send = process.send.bind(process);
  const post = (message) => {
 +	const isTerminal = message.kind !== "showing";
  	/* v8 ignore next 3 -- disconnect needs a live IPC channel the unit lane must not sever (built-worker.e2e.ts owns the real close path). */
@@ -48,11 +57,14 @@ index a7bb479..b22769a 100644
 -		if (process.connected) process.disconnect();
 +		if (isTerminal && process.connected) process.disconnect();
  	});
+ };
+ /* v8 ignore next 3 -- the handler exits(0), which would kill the unit lane; built-worker.e2e.ts owns the real disconnect lifecycle. */
 diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
-index 70a498a..309deb8 100644
 --- a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
-@@ -526,7 +526,9 @@ var LocalSandboxProvider = class extends SandboxProvider {
+@@ -534,13 +534,15 @@
+ 	windowsAclRunnerInvocation() {
+ 		const override = this.internals.windowsAclRunnerArgs;
  		if (override !== void 0) return override;
 +		const nodeExecutable = process.env.MINKE_NODE_EXECUTABLE;
 +		if (nodeExecutable === void 0 || nodeExecutable === "") throw new Error("Minke managed Node executable is unavailable");
@@ -60,7 +72,11 @@ index 70a498a..309deb8 100644
 -		if (existsSync(builtEntry)) return [process.execPath, builtEntry];
 +		if (existsSync(builtEntry)) return [nodeExecutable, builtEntry];
  		const sourceEntry = fileURLToPath(import.meta.resolve("@deepseek-ai/dsh-sandbox-windows-acl/src/runner.ts"));
+ 		const sourceConfig = fileURLToPath(new URL("../../../../tsconfig.base.json", import.meta.url));
+ 		const registration = `import { register } from ${JSON.stringify(import.meta.resolve("tsx/esm/api"))}; register({ tsconfig: ${JSON.stringify(sourceConfig)} });`;
  		return [
 -			process.execPath,
 +			nodeExecutable,
  			"--import",
+ 			`data:text/javascript,${encodeURIComponent(registration)}`,
+ 			sourceEntry

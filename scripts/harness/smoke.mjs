@@ -708,7 +708,7 @@ async function main() {
         criticalFailurePatch,
         [
           "- insert:",
-          "    - id: dsh-desktop-critical-failure",
+          "    - id: minke-overlay",
           `      name: ${criticalEntryName}`,
           "",
         ].join("\n"),
@@ -793,6 +793,14 @@ async function main() {
         env,
       },
     );
+    const ptc = await runSuccessful(
+      executable("node"),
+      [join(projectRoot, "scripts/harness/ptc-runtime-probe.mjs"), runtimeRoot, temporaryRoot],
+      { cwd: projectRoot, env },
+    );
+    if (ptc.stdout.trim() !== "ptc-runtime-ok") {
+      throw new Error(`Node PTC probe returned ${JSON.stringify(ptc.stdout.trim())}`);
+    }
     await runSuccessful(
       electronExecutable,
       ["--eval", piAiMistralProbeSource, runtimeRoot],
@@ -862,8 +870,8 @@ async function main() {
       );
     }
 
-    // Critical launcher overlays stay fail-fast even when profile-installed
-    // plugin bundles are isolated.
+    // Minke's required host overlay stays fail-fast while upstream isolates
+    // optional profile entries.
     const criticalFailure = await run(
       executable("dsh"),
       [
@@ -905,7 +913,7 @@ async function main() {
       env,
     );
     const isolatedFailureMarker =
-      `isolated optional loader entry ${failingEntryId}`;
+      `${failingEntryId} (${failingPluginId})`;
     if (!server.output().includes(isolatedFailureMarker)) {
       throw new Error(
         `failing profile plugin was not reported as isolated\n${server.output()}`,
@@ -988,6 +996,40 @@ async function main() {
       throw new Error("external Web plugin HMR bundle was not served");
     }
 
+    const externalPluginUrl = server.baseUrl;
+    for (const safeMode of [false, true]) {
+      await stopServer(server.child);
+      server = undefined;
+      server = await startServer(executable("dsh"), [
+        "web", "--patch", runtimeLayout.productPatch,
+        "--no-open", "--host", "127.0.0.1", "--port", "0",
+      ], {
+        ...env,
+        MINKE_PLUGIN_SAFE_MODE: safeMode ? "1" : "0",
+        MINKE_DISABLED_PLUGINS: JSON.stringify(safeMode ? [] : [failingPluginId]),
+      });
+      const recoveryManifest = await fetchManifest(server);
+      if (!recoveryManifest.entries.some(entry => entry.id === productPackageName)
+        || recoveryManifest.entries.some(entry => entry.id === pluginId) === safeMode
+        || server.output().includes(isolatedFailureMarker)) {
+        throw new Error(`plugin recovery policy failed (safe mode: ${safeMode})`);
+      }
+      await fetchMinkeHostCapabilities(server);
+      if (!safeMode) {
+        const response = await server.fetch(`${server.baseUrl}/smoke/plugin-inventory`);
+        const current = response.ok ? await response.json() : undefined;
+        if (!Array.isArray(current?.entries)
+          || current.entries.some(entry => entry.moduleName === failingPluginId)) {
+          throw new Error("disabled profile plugin remained in the Loader inventory");
+        }
+      }
+      const retained = JSON.parse(await readFile(webProfileManifestPath, "utf8"));
+      if (retained.dependencies?.[pluginId] !== installedPluginSpec
+        || retained.dependencies?.[failingPluginId] !== installedFailingPluginSpec) {
+        throw new Error("plugin recovery changed installed Profile dependencies");
+      }
+    }
+
     console.log(
       [
         "Harness runtime smoke passed:",
@@ -996,14 +1038,16 @@ async function main() {
         `  bundled pnpm:  ${pnpmVersion.stdout.trim()}`,
         "  recursive Electron Node/native child policy: functional",
         "  bundled node-pty: functional",
+        "  Node PTC: control channel, tool calls and workspace sandbox functional",
         "  bundled pi-ai Mistral provider: functional",
         `  bundled esbuild: ${esbuildVersion.stdout.trim()}`,
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,
         `  isolated plugin failure: ${failingPluginId}`,
+        "  plugin recovery: disabled entries and safe mode retain installations",
         `  Minke Host RPC: files=${String(minkeCapabilities.files.available)}, tabs=${String(minkeCapabilities.tabs.available)}, terminal=${String(minkeCapabilities.terminal.available)}`,
         "  Minke PWA: standalone manifest/icons/service worker",
-        `  external plugin install/load/HMR: ${server.baseUrl}`,
+        `  external plugin install/load/HMR: ${externalPluginUrl}`,
         "  ambient dsh/Node/pnpm dependency: none",
         `  runtime source: ${packaged ? "packaged app" : "staged development host"}`,
       ].join("\n"),

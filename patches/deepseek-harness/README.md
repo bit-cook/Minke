@@ -4,7 +4,7 @@ Minke keeps `vendor/deepseek-harness` pinned and pristine. Local fixes that cann
 
 The applicator accepts git unified diffs that modify existing text files below `node_modules/@deepseek-ai/`. It rejects path escapes, file creation/deletion, renames, binary patches, stale hunks, and skipped patches. Patch contents are part of the runtime fingerprint and metadata; validation also reverse-checks that every declared patch is present before publishing or fast refresh.
 
-`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.5-rc.2` (`fb2c4b9e698e30edb738bca4cf0618587db7d203`). It:
+`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.6-alpha.1` (`0a15e36e7f82b6ed45af6fa9759f29b40dcd965d`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
 - keeps the dialog worker's IPC channel open through non-terminal `showing` progress and disconnects only after a terminal result.
@@ -13,7 +13,7 @@ Harness now decodes selected UTF-16 paths through a pointer-sized buffer without
 
 `windows-background-processes.patch` is pinned to the same Harness commit. It:
 
-- fills the remaining console-window suppression gaps in Windows process inspection, sandbox probes, browser handoff, plugin management, and the experimental Python runtime;
+- fills the remaining console-window suppression gaps in Windows process inspection, sandbox probes, browser handoff, plugin management, and the experimental Python PTC runtime (`dsh-experimental-ptc-runtime-python`);
 - retains upstream's hidden `taskkill` helpers, hides the Windows Job runner, and makes the fallback subprocess spawner's `windowsHide` value explicitly `true` for the staged-artifact audit;
 - leaves PTY/ConPTY terminal sessions on their dedicated `spawnTerminal` lifecycle path.
 
@@ -32,10 +32,14 @@ other launch sites in that package remain subject to the background policy.
 
 `optional-plugin-isolation.patch` is pinned to the same Harness commit. It:
 
-- marks entries inserted by profile bundles listed in the profile's `dependencies` as isolated, while installation-owned bundles and launcher overlays remain fail-fast;
+- uses upstream startup auditing for optional-plugin failures and adds `minke-overlay` and `model-runtime` to its required-entry list;
 - skips external profile bundles selected by Minke's disabled-plugin policy or safe mode without changing the profile manifest;
-- retains a failed external entry as Loader health state, logs its original activation error, and lets unrelated entries finish booting;
-- exposes isolated activation failures as `failed` through the existing plugin inventory so Settings can report the degraded plugin.
+- retains import errors on Loader entries and projects them as `failed` in plugin inventory, alongside upstream activation failures.
+
+The former local isolation/rollback implementation is removed. Upstream now owns
+startup recovery: optional failures do not stop unrelated plugins, required
+failures remain fatal, and activation errors during hot reload can leave partial
+changes that must be corrected.
 
 `dynamic-trusted-hosts.patch` is pinned to the same Harness commit. It:
 
@@ -47,6 +51,7 @@ other launch sites in that package remain subject to the background policy.
 
 - strips Electron/Node bootstrap controls from ordinary subprocesses, native integrations, and browser handoff children so ambient desktop runtime state cannot leak across execution boundaries;
 - restores Minke's managed Node executable and bootstrap for private subprocess runners and explicitly recognized embedded-Node targets, including native Windows Job, Linux systemd, terminal, and Windows ACL paths;
+- restores embedded Node arguments before PTC confinement. On POSIX, the confined argv explicitly restores Node mode after the native sandbox launcher; model code still sees an empty environment, and the separate control pipe remains intact;
 - preserves upstream's `proxyEnvironmentForChild()` overlay after scrubbing, so children retain the configured proxy routing.
 
 `document-preview-browser-crypto.patch` is pinned to the same Harness commit.
@@ -87,7 +92,9 @@ provides equivalent instance, observation, and close-admission contracts.
 Harness owns the native right Sidebar, document previews, produced-file actions,
 and the whole-session turn rail with deep-history load-and-jump. Minke custom
 tabs now join that Sidebar through its public registration and render slots,
-with the private adapter confined to `tabs/native`. Stable Minke content hosts
+with the private adapter confined to `tabs/native`. The native Start page owns
+its guide and terminal shell picker; Minke contributes its cards through
+`sidebar.right.tab.guide.entry` rather than replacing the guide. Stable Minke content hosts
 preserve WebViews and editors across native pane changes. The start page/global
 panel fallback and the bottom panel retain their Minke shells. Native
 conversation file links retain their Sidebar routing. Global panels use
@@ -100,7 +107,7 @@ The earlier 0.1.2-alpha.3 release removes only Harness's optional SQLite Session
 Minke's IM Gateway SQLite mailbox is a separate desktop transport store and is
 not part of that Session persistence contract.
 
-The 0.1.5-rc.2 runtime uses Session v3 and lifecycle-scoped SessionHandles.
+The 0.1.6-alpha.1 runtime uses Session v3 and lifecycle-scoped SessionHandles.
 Minke's staged entry invokes the exported `runCli()` after loading its Node
 bootstrap; importing the upstream CLI no longer dispatches a command.
 Minke delegates Session creation, inspection, follow streams, and export to
@@ -115,10 +122,17 @@ publication and reuse, staging exercises acquisition, contention, and release
 under Electron; Windows checks its Koffi native binding. The source build owns
 the platform binary, and the runtime dependency closure includes it.
 
+The production deploy allows unused workspace patches because the upstream
+`@electron/osx-sign` patch belongs to its separate desktop build, outside Minke's
+production dependency closure. The complete frozen workspace install still
+validates all declared patches.
+
 After changing the upstream pin or a patch, run:
 
 ```sh
 pnpm harness:verify
 pnpm harness:stage
 pnpm test:desktop
+pnpm harness:smoke
+pnpm test:desktop:sidebar
 ```

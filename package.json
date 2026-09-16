@@ -70,7 +70,7 @@
     "sys": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-typert-protocol": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.6-alpha.1",
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/core": "7.11.2",
     "@electron-forge/maker-deb": "7.11.2",

@@ -293,7 +293,7 @@ test("the background-process patch leaves generated ACL bundles to the runtime t
   );
   assert.equal(
     patch.targets.includes(
-      "node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js",
+      "node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js",
     ),
     true,
   );

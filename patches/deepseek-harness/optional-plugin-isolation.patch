@@ -1,75 +1,26 @@
 diff --git a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
-index 1b31f0f..8cfc8eb 100644
 --- a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
 +++ b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
-@@ -3,2 +3,11 @@ import { Context, Inject, Service, composeError } from "@deepseek-ai/cordis";
- import { deepEqual, defineProperty, isNonNullable, isNullable, valueMap } from "@deepseek-ai/cosmokit";
-+function reportIsolatedEntryFailure(context, entry, error) {
-+	try {
-+		const detail = error instanceof Error ? error.stack ?? error.message : String(error);
-+		process.stderr.write(`isolated optional loader entry ${entry.options.id} (${entry.options.name})\n${detail}\n`);
-+	} catch {}
-+	try {
-+		context.logger.error(error);
-+	} catch {}
-+}
- //#region lib/types/internal.js
-@@ -65,2 +74,3 @@ var EntryGroup = class {
- 			await entry.update(options, true, true);
-+			entry.failure = entry.lastFailure = void 0;
+@@ -366,10 +366,12 @@
+ 		this.fiber?.await().then(notify, notify);
+ 	}
+ 	async _init() {
++		this.failure = void 0;
+ 		let exports;
+ 		try {
+ 			exports = await this.parent.tree.import(this.options.name, this.getOuterStack);
  		} catch (error) {
-@@ -98,3 +108,25 @@ var EntryGroup = class {
- 			if (this.ctx.fiber.uid === null) return;
--			const failures = outcomes.filter((outcome) => outcome.status === "rejected").map((outcome) => outcome.reason);
-+			const failures = [];
-+			const effectiveConfig = [];
-+			for (const [index, outcome] of outcomes.entries()) {
-+				const options = config[index];
-+				const entry = this.tree.store[options.id];
-+				if (outcome.status === "fulfilled") {
-+					effectiveConfig.push(entry?.options ?? options);
-+					continue;
-+				}
-+				if (options.failurePolicy !== "isolate") {
-+					failures.push(outcome.reason);
-+					continue;
-+				}
-+				const failedEntry = entry ?? (this.tree.store[options.id] = new Entry(this.ctx.loader));
-+				if (!failedEntry.fiber?.uid) {
-+					failedEntry.parent = this;
-+					failedEntry.options = options;
-+					failedEntry.failure = outcome.reason;
-+				}
-+				failedEntry.lastFailure = outcome.reason;
-+				effectiveConfig.push(failedEntry.options);
-+				reportIsolatedEntryFailure(this.context, failedEntry, outcome.reason);
-+			}
- 			if (failures.length === 1) throw failures[0];
-@@ -102,3 +134,3 @@ var EntryGroup = class {
- 			for (const id of Object.keys(oldMap)) if (!newMap[id]) await this.remove(id, true);
--			this.data = config;
-+			this.data = effectiveConfig;
- 		} catch (error) {
++			this.failure = error;
+ 			this.ctx.logger.error(error);
+ 			return;
+ 		} finally {
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
-index 8dd94c6..964744e 100644
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
-@@ -832,2 +832,36 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
- }
-+function isolateExternalBundleEntry(entry) {
-+	const isolated = {
-+		...entry,
-+		failurePolicy: "isolate"
-+	};
-+	if (isolated.group && Array.isArray(isolated.config)) isolated.config = isolated.config.map(isolateExternalBundleEntry);
-+	return isolated;
-+}
-+function isolateExternalBundlePatches(patches) {
-+	return patches.map((patch) => Array.isArray(patch.insert) ? {
-+		...patch,
-+		insert: patch.insert.map(isolateExternalBundleEntry)
-+	} : patch);
-+}
+@@ -1007,13 +1007,35 @@
+ * @param options - `userLayer: false` skips reading `cordis.patch.yml`.
+ * @returns the resolved bundle layers and optional user patch layer.
+ */
 +function readMinkePluginPolicy(environment = process.env) {
 +	const safeMode = environment.MINKE_PLUGIN_SAFE_MODE;
 +	if (safeMode !== void 0 && safeMode !== "0" && safeMode !== "1") throw new Error("dsh: invalid MINKE_PLUGIN_SAFE_MODE");
@@ -90,38 +41,37 @@ index 8dd94c6..964744e 100644
 +		disabled: new Set(disabled)
 +	};
 +}
- /**
-@@ -848,3 +882,5 @@ function loadProfileDirectory(binName, dir, installAnchor, options = {}) {
+ function loadProfileDirectory(binName, dir, installAnchor, options = {}) {
+ 	const manifest = readProfileManifest(binName, dir);
+ 	const bundles = manifest.dsh?.profile?.bundles ?? [];
+ 	const rawPatchReload = manifest.dsh?.profile?.patchReload;
+ 	if (rawPatchReload !== void 0 && rawPatchReload !== "live" && rawPatchReload !== "startup") throw new Error(`${binName}: profile manifest ${join(dir, "package.json")} dsh.profile.patchReload must be "live" or "startup"`);
  	const patchReload = rawPatchReload ?? "live";
 -	const layers = bundles.map((packageName) => {
 +	const externalBundles = new Set(Object.keys(manifest.dependencies ?? {}));
 +	const pluginPolicy = readMinkePluginPolicy();
 +	const layers = bundles.filter((packageName) => !externalBundles.has(packageName) || !pluginPolicy.safeMode && !pluginPolicy.disabled.has(packageName)).map((packageName) => {
  		const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir);
-@@ -853,2 +889,3 @@ function loadProfileDirectory(binName, dir, installAnchor, options = {}) {
- 		const patchPath = join(packageDir, declared);
-+		const patches = loadOverlayPatches(binName, patchPath);
- 		return {
-@@ -857,3 +894,3 @@ function loadProfileDirectory(binName, dir, installAnchor, options = {}) {
- 			patchPath,
--			patches: loadOverlayPatches(binName, patchPath)
-+			patches: externalBundles.has(packageName) ? isolateExternalBundlePatches(patches) : patches
- 		};
-@@ -1434,3 +1471,3 @@ function installFailLoud(binName, proc = process, release) {
- function assertEntriesLoaded(ctx, binName) {
--	const failed = [...ctx.loader.entries()].filter((entry) => entry.fiber === void 0 && !entry.disabled);
-+	const failed = [...ctx.loader.entries()].filter((entry) => entry.fiber === void 0 && !entry.disabled && !(entry.options.failurePolicy === "isolate" && entry.failure !== void 0));
- 	if (failed.length > 0) {
-@@ -1473,2 +1510,3 @@ async function assertEntriesActivated(ctx, binName) {
- 		if (state === FIBER_ACTIVE) continue;
-+		if (entry.options.failurePolicy === "isolate") continue;
- 		if (state === FIBER_FAILED) {
+ 		const declared = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).dsh?.bundle?.patch;
+ 		if (declared === void 0) throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`);
+@@ -2406,6 +2428,8 @@
+ * shared Agent execution, application endpoints, and Web bootstrap/transport.
+ */
+ const requiredStartupEntryIds = new Set([
++	"minke-overlay",
++	"model-runtime",
+ 	"agent-loop",
+ 	"webserver",
+ 	"modules",
 diff --git a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
-index d3d818d..5ed3c69 100644
 --- a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
-@@ -115,3 +115,3 @@ let PluginInventoryGateway = (() => {
+@@ -113,7 +113,7 @@
+ 					entryId: pluginEntryId(entry.id),
+ 					moduleName: entry.options.name,
  					enabled: !entry.disabled,
 -					fiberPhase: entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state]
 +					fiberPhase: entry.failure === void 0 ? entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state] : "failed"
  				});
+ 			}
+ 			const presets = this.ctx.get("agentPresets");

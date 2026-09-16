@@ -1088,6 +1088,9 @@ async function main() {
         "--config.node-linker=hoisted",
         "--config.auto-install-peers=false",
         "--config.link-workspace-packages=true",
+        // The upstream desktop signer patch is a build-only dependency outside
+        // this production closure. The full workspace install still checks it.
+        "--config.allow-unused-patches=true",
         candidateRuntimeRoot,
       ],
       harnessRoot,

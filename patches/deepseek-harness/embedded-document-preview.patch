@@ -1,7 +1,7 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
-@@ -26913,6 +26913,35 @@
+@@ -27132,6 +27132,35 @@
  		* Client plugin body: register the type, its dictionaries, its body, and its chip title.
  		* @param ctx - client root context carrying the registry, the slots, copy, and the Remote face.
  		*/
@@ -37,7 +37,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib
  		function apply(ctx) {
  			const previews = new DocumentPreviewRegistry();
  			const disposePreviews = ctx.reflect.provide("documentPreviews", previews);
-@@ -26953,6 +26982,7 @@
+@@ -27172,6 +27201,7 @@
  			apply$3(ctx);
  			apply$2(ctx);
  			apply$1(ctx);

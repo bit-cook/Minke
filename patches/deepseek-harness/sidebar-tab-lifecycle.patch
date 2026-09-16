@@ -1,7 +1,7 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
-@@ -415,24 +415,30 @@
+@@ -484,24 +484,30 @@
  		* @param seed - the registered default page, read at each mint.
  		* @returns the handle (spec, type, identity, and factory in one).
  		*/
@@ -38,7 +38,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  							const next = advance(s, (state, mint, makeTab) => (0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(state).length >= 2 || (0, _deepseek_ai_dsh_client_ui_dockkit.getPane)(state, paneId ?? (0, _deepseek_ai_dsh_client_ui_dockkit.activeDockPaneId)(state)).tabs.length === 0 ? [] : (0, _deepseek_ai_dsh_client_ui_dockkit.planSplitPane)(state, mint, paneId, makeTab), seed);
  							if (settled !== void 0 && next !== s) {
  								const before = new Set((0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(s.layout));
-@@ -442,7 +448,8 @@
+@@ -511,7 +517,8 @@
  						});
  					},
  					openContent: (d, sessionId, intent, settled) => {
@@ -48,7 +48,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  							const { kind, contentId, title, replaceTab: replace } = intent;
  							const ops = [...(0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, true)];
  							const replaced = replace === void 0 ? void 0 : (0, _deepseek_ai_dsh_client_ui_dockkit.findTabPane)(state, replace);
-@@ -470,15 +477,16 @@
+@@ -539,15 +546,16 @@
  								type: "closeTab",
  								tabId: replace
  							});
@@ -69,7 +69,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  							if (!canCloseTab(s, tabId)) return [];
  							if (!soleDockedTab(state, tabId)) return [{
  								type: "closeTab",
-@@ -495,16 +503,16 @@
+@@ -564,16 +572,16 @@
  						}, seed));
  					},
  					focusTab: (d, sessionId, tabId) => {
@@ -90,7 +90,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  							if (zone === "top" || zone === "bottom") return [];
  							if (zone !== "center" && (0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(state).length >= 2) return [];
  							const plan = () => (0, _deepseek_ai_dsh_client_ui_dockkit.planDropTab)(state, mint, tabId, paneId, zone, makeTab);
-@@ -512,10 +520,10 @@
+@@ -581,10 +589,10 @@
  						}, seed));
  					},
  					floatTab: (d, sessionId, tabId, rect) => {
@@ -103,7 +103,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  							const floated = (0, _deepseek_ai_dsh_client_ui_dockkit.getPane)(state, paneId).tabs[0];
  							const plan = () => (0, _deepseek_ai_dsh_client_ui_dockkit.planUnfloatPane)(state, paneId);
  							/* v8 ignore next -- a floating pane holds exactly one tab. */
-@@ -523,7 +531,7 @@
+@@ -592,7 +600,7 @@
  						}, seed));
  					},
  					moveFloat: (d, sessionId, paneId, x, y) => {
@@ -112,7 +112,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  							type: "moveFloat",
  							paneId,
  							x,
-@@ -531,20 +539,20 @@
+@@ -600,20 +608,20 @@
  						}], seed));
  					},
  					resizeFloat: (d, sessionId, paneId, rect) => {
@@ -137,7 +137,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  					}
  				}
  			});
-@@ -1112,6 +1120,7 @@
+@@ -1224,6 +1232,7 @@
  					const sync = () => {
  						const surface = store.getSnapshot().bySession[sessionId];
  						if (surface !== void 0) controller.tabDomain.sync(sessionId, surface.layout);
@@ -145,7 +145,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  					};
  					const adoption = {
  						store,
-@@ -1132,6 +1141,89 @@
+@@ -1244,6 +1253,89 @@
  			tabs;
  			adopted;
  			binding;
@@ -232,10 +232,10 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 +                };
 +            }
 +
+ 			closeHandlers = /* @__PURE__ */ new Map();
  			/**
- 			* The Tab domain this controller navigates into; synced from each adopted
- 			* store's commits, read by the seat for each body's owner share.
-@@ -1156,8 +1248,10 @@
+ 			* Register resource cleanup before explicit removal. Failure preserves the tab.
+@@ -1282,8 +1374,10 @@
  			*/
  			bind(binding) {
  				this.binding = binding;
@@ -246,7 +246,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  				};
  			}
  			/**
-@@ -3608,7 +3702,7 @@
+@@ -3761,7 +3855,7 @@
  			const t = ctx.locale.bind(NS);
  			const tabs = new SidebarRightTabRegistry(ctx);
  			const { controller, adopt } = createSidebarRightController(tabs, (address, signal) => {
@@ -255,7 +255,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
  			});
  			const disposeRegistry = ctx.reflect.provide("sidebarRightTabs", tabs);
  			const disposeService = ctx.reflect.provide("sidebarRight", controller);
-@@ -3622,7 +3716,7 @@
+@@ -3775,7 +3869,7 @@
  				en
  			}), "ui-sidebar-right: dictionaries");
  			ctx.effect(() => {

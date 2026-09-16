@@ -1,7 +1,7 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
-@@ -3330,7 +3330,6 @@
+@@ -3549,7 +3549,6 @@
  			return str.replaceAll(NormalizeRegex, (_, p1, p2) => p1 ? p1.normalize("NFKC") : NormalizationMap.get(p2));
  		}
  		function getUuid() {

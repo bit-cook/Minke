@@ -194,7 +194,7 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
-    "packages/llm/llm-deepseek/src/index.ts",
+    "packages/llm/llm-deepseek/src/config.ts",
     options.deepSeekLowEffort === false
       ? "reasoningEffort?: 'off' | 'high' | 'max'\n"
       : "reasoningEffort?: 'off' | 'low' | 'high' | 'max'\n",
