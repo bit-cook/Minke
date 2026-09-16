@@ -60,11 +60,16 @@ test("Linux packaging prepares the pinned DSH sandbox before runtime checks", as
     (step) => step.name === "Prepare Linux sandbox",
   );
   assert.notEqual(prepareIndex, -1, "Linux sandbox preparation is required");
-  assert.deepEqual(steps[prepareIndex], {
-    name: "Prepare Linux sandbox",
-    if: "runner.os == 'Linux'",
-    run: "bash vendor/deepseek-harness/scripts/prepare-ci-bubblewrap.sh",
-  });
+  const preparation = steps[prepareIndex];
+  assert.equal(preparation.if, "runner.os == 'Linux'");
+  assert.notEqual(preparation["continue-on-error"], true);
+  const commands = preparation.run.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#"));
+  assert.deepEqual(commands, [
+    "bash vendor/deepseek-harness/scripts/prepare-ci-bubblewrap.sh",
+    'sudo install -m 0755 "$RUNNER_TEMP/dsh-bubblewrap/usr/bin/bwrap" /usr/bin/bwrap',
+  ]);
   for (const command of [
     "pnpm harness:stage",
     "pnpm test:desktop",

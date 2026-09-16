@@ -47,7 +47,12 @@ try {
       bindings: [{ global: "tools", functions: { double: async value => value * 2 } }],
     }));
     assert.equal(result.error, undefined, `${mode}: ${JSON.stringify(result)}`);
-    assert.deepEqual(result.value, { value: 42, cwd: await realpath(cwd), env: [] });
+    // Windows may report the temporary root through its 8.3 alias. Compare
+    // canonical directories on both sides while keeping the full value check.
+    assert.deepEqual(
+      { ...result.value, cwd: await realpath(result.value.cwd) },
+      { value: 42, cwd: await realpath(cwd), env: [] },
+    );
     assert.deepEqual(result.logs, ["ptc-control-ok"]);
     assert.equal(result.sandbox.mode, mode);
     assert.equal(await readFile(join(cwd, "probe.txt"), "utf8"), "42");

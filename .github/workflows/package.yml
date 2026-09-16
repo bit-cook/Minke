@@ -80,7 +80,11 @@ jobs:
       # bubblewrap and permission to create namespaces on the hosted runner.
       - name: Prepare Linux sandbox
         if: runner.os == 'Linux'
-        run: bash vendor/deepseek-harness/scripts/prepare-ci-bubblewrap.sh
+        run: |
+          bash vendor/deepseek-harness/scripts/prepare-ci-bubblewrap.sh
+          # Packaged smoke keeps only system directories on PATH so a host
+          # Node.js installation cannot hide a missing bundled runtime.
+          sudo install -m 0755 "$RUNNER_TEMP/dsh-bubblewrap/usr/bin/bwrap" /usr/bin/bwrap
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
