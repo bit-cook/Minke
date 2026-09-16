@@ -6,7 +6,7 @@ import type { TabsRuntime } from "../runtime.ts";
 import type { ManagedTab } from "../types.ts";
 import { minkeTabId, type NativeTabInfo } from "./contract.ts";
 import type { NativeTabsRuntime } from "./runtime.ts";
-import { placeContentHost } from "./viewport.ts";
+import { observeContentHost } from "./viewport-observer.ts";
 import { bindDrawerFocus } from "./drawer-focus.ts";
 
 export function NativeTabViewport({ native, id, visible }: {
@@ -50,24 +50,7 @@ function ContentInstance({ tab, runtime, native, renderers, t }: {
   const loading = renderer?.loading?.(tab) === true;
   const toolbar = native.active && (renderer?.renderLeadingActions || renderer?.renderTrailingActions || renderer?.renderToolbarCenter);
   useEffect(() => {
-    let frame = 0;
-    let lastVisible = false;
-    const position = (): void => {
-      const host = ref.current;
-      if (host) {
-        const shown = placeContentHost(host, native.viewport(tab.id));
-        if (shown !== lastVisible) { lastVisible = shown; setVisible(shown); }
-      }
-      // Hidden content has no animation loop; a seat attachment/visibility
-      // change wakes it. Only the visible panes follow live drag geometry.
-      if (native.viewport(tab.id)) frame = requestAnimationFrame(position);
-    };
-    const unsubscribe = native.subscribe(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(position);
-    });
-    position();
-    return () => { unsubscribe(); cancelAnimationFrame(frame); };
+    if (ref.current) return observeContentHost(ref.current, native, tab.id, setVisible);
   }, [native, tab.id]);
   useEffect(() => {
     if (!visible || native.active || !ref.current) return;

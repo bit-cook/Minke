@@ -124,7 +124,9 @@ committing. Undo cannot recreate a disposed PTY or browser instance.
 
 Each custom view has one stable DOM owner outside the transient native seats.
 Seats provide viewport geometry; only visible hosts follow it, with clipping for
-overlapping native floats. Changing tabs, panes, presentation, or sessions does
+overlapping native floats. A shared observer coalesces layout, resize and scroll
+changes; static tabs do not poll geometry, and finite layout transitions retain
+frame-by-frame tracking. Changing tabs, panes, presentation, or sessions does
 not reparent the WebView. Native titles, tab context menus, and drag handling remain in DSH.
 The start page and global panels use Minke's fallback strip with those same
 content owners. The bottom panel retains its independent Minke implementation.

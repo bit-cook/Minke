@@ -85,6 +85,7 @@ const taskFiles = Object.freeze({
     "tabs-header-default.test.mjs",
     "tabs.test.mjs",
     "native-sidebar-tabs.test.mjs",
+    "native-tab-viewport.test.mjs",
     "terminal-settings.test.mjs",
     "terminal-tabs.test.mjs",
     "web-tab-annotations.test.mjs",

@@ -557,6 +557,18 @@ async function readAgentBrowserLayout(window) {
   );
 }
 
+async function assertRetainedBrowserPosition(window, label) {
+  await waitFor(() => rendererValue(window, `() => {
+    const host = document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)');
+    const seat = [...document.querySelectorAll('[data-minke-tab-viewport]')].find(element =>
+      element.dataset.minkeTabViewport === host?.dataset.minkeTabInstance && element.dataset.visible === 'true');
+    if (!host || !seat || host.inert) return false;
+    const expected = seat.getBoundingClientRect();
+    const actual = host.getBoundingClientRect();
+    return ['left', 'top', 'width', 'height'].every(key => Math.abs(expected[key] - actual[key]) < 1);
+  }`), label + ' aligns the retained browser with its native seat');
+}
+
 function assertAgentBrowserLayout(before, after) {
   const stableNames = [
     'panel',
@@ -1413,11 +1425,30 @@ async function run() {
     assert.equal(guest.isDestroyed(), false);
     trace('native tab switching retained the same DOM node, WebContents and human input');
 
+    await assertRetainedBrowserPosition(window, 'tab switching');
+    const idleGeometryReads = await rendererValue(window, `async () => {
+      const host = document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)');
+      const seat = [...document.querySelectorAll('[data-minke-tab-viewport]')].find(element =>
+        element.dataset.minkeTabViewport === host.dataset.minkeTabInstance && element.dataset.visible === 'true');
+      const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+      for (let index = 0; index < 24; index++) await frame();
+      const original = seat.getBoundingClientRect;
+      let reads = 0;
+      seat.getBoundingClientRect = function () { reads++; return original.call(this); };
+      try { for (let index = 0; index < 12; index++) await frame(); }
+      finally { seat.getBoundingClientRect = original; }
+      return reads;
+    }`);
+    assert.equal(idleGeometryReads, 0, 'static visible browser tabs must not poll their geometry');
+    trace('visible browser tab performed no geometry polling over 12 idle frames');
+
     await rendererValue(window, `() => { document.querySelector('[data-sidebar-right-mode="fullscreen"]').click(); return true; }`);
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="fullscreen"]') !== null`), 'native fullscreen');
+    await assertRetainedBrowserPosition(window, 'fullscreen');
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-split-button]:not([disabled])') !== null`), 'room for a native split');
     await rendererValue(window, `() => { document.querySelector('[data-dockkit-split-button]:not([disabled])').click(); return true; }`);
     await waitFor(() => rendererValue(window, `() => document.querySelectorAll('[data-dockkit-pane]').length === 2`), 'two native split panes');
+    await assertRetainedBrowserPosition(window, 'split panes');
     if (process.platform === 'darwin') {
       await waitFor(() => rendererValue(window, `() => {
         const strips = [...document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-strip]')];
@@ -1442,10 +1473,12 @@ async function run() {
     await new Promise(resolve => setTimeout(resolve, 50));
     window.webContents.sendInputEvent({ type: 'mouseUp', x: 360, y: 240, button: 'left', clickCount: 1 });
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-float]') !== null`), 'native drag to floating panel');
+    await assertRetainedBrowserPosition(window, 'floating panel');
     assert.equal(await rendererValue(window, `() => document.querySelector('.minke-agent-browser__guest') === window.__minkeTestGuest`), true);
     assert.equal(await guest.executeJavaScript('document.querySelector("#human-note").value'), 'human-control');
     await rendererValue(window, `() => { document.querySelector('[data-dockkit-float-dock]').click(); return true; }`);
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-float]') === null`), 'floating browser to dock');
+    await assertRetainedBrowserPosition(window, 'docking');
     assert.equal(await rendererValue(window, `() => document.querySelector('.minke-agent-browser__guest').getWebContentsId()`), originalGuestId);
     trace('native fullscreen, split, drag-to-float and dock retained the same browser instance');
 

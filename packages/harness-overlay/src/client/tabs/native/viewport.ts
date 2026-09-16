@@ -1,5 +1,15 @@
 interface Rect { left: number; top: number; right: number; bottom: number }
 
+type HostStyle = Pick<CSSStyleDeclaration, "left" | "top" | "width" | "height" | "zIndex" | "clipPath" | "visibility" | "pointerEvents">;
+
+function applyStyle(host: HTMLElement, styles: Partial<HostStyle>, inert: boolean): void {
+  for (const name of Object.keys(styles) as (keyof HostStyle)[]) {
+    const value = styles[name];
+    if (value !== undefined && host.style[name] !== value) host.style[name] = value;
+  }
+  if (host.inert !== inert) host.inert = inert;
+}
+
 /** Subtract occluding float rectangles without making overlapping clip holes. */
 export function subtractRect(source: Rect, cover: Rect): Rect[] {
   const left = Math.max(source.left, cover.left);
@@ -23,9 +33,7 @@ export function placeContentHost(host: HTMLElement, viewport: HTMLElement | unde
     viewport.checkVisibility({ checkVisibilityCSS: true }) &&
     document.querySelector("[data-dockkit-dock-scrim]") === null;
   if (!shown) {
-    host.style.visibility = "hidden";
-    host.style.pointerEvents = "none";
-    host.inert = true;
+    applyStyle(host, { visibility: "hidden", pointerEvents: "none" }, true);
     return false;
   }
   const float = viewport.closest<HTMLElement>("[data-dockkit-float]");
@@ -44,13 +52,12 @@ export function placeContentHost(host: HTMLElement, viewport: HTMLElement | unde
   }).join(" ");
   const fullscreen = viewport.closest('[data-sidebar-right-panel="fullscreen"]') !== null;
   const fallback = viewport.closest(".minke-tabs-panel") !== null;
-  Object.assign(host.style, {
+  applyStyle(host, {
     left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`,
     zIndex: float ? "61" : fullscreen ? "41" : fallback ? "21" : "11",
     clipPath: `path("${clip || "M 0 0 Z"}")`,
     visibility: visible.length > 0 ? "visible" : "hidden",
     pointerEvents: visible.length > 0 ? "auto" : "none",
-  });
-  host.inert = visible.length === 0;
+  }, visible.length === 0);
   return visible.length > 0;
 }
