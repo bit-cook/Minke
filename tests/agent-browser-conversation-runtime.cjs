@@ -185,6 +185,7 @@ function messagesOf(body) {
 }
 
 function lastMessageText(body, role) {
+  if (role === 'tool') return toolResults(body).at(-1) ?? '';
   const messages = messagesOf(body);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -194,23 +195,24 @@ function lastMessageText(body, role) {
 }
 
 function allMessageText(body, role) {
+  if (role === 'system') return contentText(body.system);
   return messagesOf(body)
     .filter((message) => message?.role === role)
     .map((message) => contentText(message.content))
     .join('\n');
 }
 
-function allToolResultText(body) {
+function toolResults(body) {
   return messagesOf(body)
-    .filter((message) => message?.role === 'tool')
-    .map((message) => contentText(message.content))
-    .join('\n');
+    .flatMap(message => Array.isArray(message.content) ? message.content : [])
+    .filter(block => block.type === 'tool_result')
+    .map(block => contentText(block.content));
 }
 
 function toolNames(body) {
   if (!Array.isArray(body?.tools)) return [];
   return body.tools.flatMap((entry) => {
-    const name = entry?.function?.name;
+    const name = entry?.name;
     return typeof name === 'string' ? [name] : [];
   });
 }
@@ -231,47 +233,43 @@ function openSse(response) {
     connection: 'keep-alive',
   });
   response.flushHeaders();
+  writeSse(response, {
+    type: 'message_start',
+    message: {
+      id: 'minke-e2e-message', type: 'message', role: 'assistant',
+      model: 'deepseek-v4-flash', content: [], stop_reason: null,
+      usage: { input_tokens: 8, output_tokens: 0 },
+    },
+  });
 }
 
 function writeSse(response, value) {
   response.write(
-    `data: ${typeof value === 'string' ? value : JSON.stringify(value)}\n\n`,
+    `event: ${value.type}\ndata: ${JSON.stringify(value)}\n\n`,
   );
 }
 
-function terminalChunk(reason, outputTokens) {
-  return {
-    choices: [{
-      index: 0,
-      delta: { content: '' },
-      finish_reason: reason,
-    }],
-    usage: {
-      prompt_tokens: 8,
-      completion_tokens: outputTokens,
-    },
-  };
+function finishSse(response, reason, outputTokens) {
+  writeSse(response, { type: 'content_block_stop', index: 0 });
+  writeSse(response, {
+    type: 'message_delta', delta: { stop_reason: reason },
+    usage: { output_tokens: outputTokens },
+  });
+  writeSse(response, { type: 'message_stop' });
+  response.end();
 }
 
 function sendText(response, text) {
   openSse(response);
   writeSse(response, {
-    choices: [{
-      index: 0,
-      delta: { role: 'assistant', content: null },
-      finish_reason: null,
-    }],
+    type: 'content_block_start', index: 0,
+    content_block: { type: 'text', text: '' },
   });
   writeSse(response, {
-    choices: [{
-      index: 0,
-      delta: { content: text },
-      finish_reason: null,
-    }],
+    type: 'content_block_delta', index: 0,
+    delta: { type: 'text_delta', text },
   });
-  writeSse(response, terminalChunk('stop', text.length));
-  writeSse(response, '[DONE]');
-  response.end();
+  finishSse(response, 'end_turn', text.length);
 }
 
 function sendToolCall(response, callId, name, args) {
@@ -279,39 +277,14 @@ function sendToolCall(response, callId, name, args) {
   const midpoint = Math.max(1, Math.floor(serialized.length / 2));
   openSse(response);
   writeSse(response, {
-    choices: [{
-      index: 0,
-      delta: {
-        tool_calls: [{
-          index: 0,
-          id: callId,
-          type: 'function',
-          function: {
-            name,
-            arguments: serialized.slice(0, midpoint),
-          },
-        }],
-      },
-      finish_reason: null,
-    }],
+    type: 'content_block_start', index: 0,
+    content_block: { type: 'tool_use', id: callId, name, input: {} },
   });
-  writeSse(response, {
-    choices: [{
-      index: 0,
-      delta: {
-        tool_calls: [{
-          index: 0,
-          function: {
-            arguments: serialized.slice(midpoint),
-          },
-        }],
-      },
-      finish_reason: null,
-    }],
-  });
-  writeSse(response, terminalChunk('tool_calls', 2));
-  writeSse(response, '[DONE]');
-  response.end();
+  for (const partial_json of [serialized.slice(0, midpoint), serialized.slice(midpoint)]) {
+    writeSse(response, { type: 'content_block_delta', index: 0,
+      delta: { type: 'input_json_delta', partial_json } });
+  }
+  finishSse(response, 'tool_use', 2);
 }
 
 async function startDynamicModelServer(browserUrl) {
@@ -324,7 +297,7 @@ async function startDynamicModelServer(browserUrl) {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       if (
         request.method !== 'POST' ||
-        !url.pathname.endsWith('/chat/completions')
+        !url.pathname.endsWith('/v1/messages')
       ) {
         response.writeHead(404).end('not found');
         return;
@@ -335,7 +308,6 @@ async function startDynamicModelServer(browserUrl) {
       const availableTools = toolNames(body);
       const userText = allMessageText(body, 'user');
       const latestTool = lastMessageText(body, 'tool');
-      const toolHistory = allToolResultText(body);
       trace(
         `model request: tools=${String(availableTools.length)} ` +
           `user=${JSON.stringify(userText.slice(0, 80))} ` +
@@ -784,6 +756,31 @@ async function promptThroughComposer(window, prompt) {
   );
 }
 
+async function verifyComposerFocus(window) {
+  const script = buildSync({
+    entryPoints: [join(projectRoot, 'packages/harness-overlay/src/client/shortcuts/actions.ts')],
+    bundle: true, format: 'iife', globalName: 'MinkeComposerActions',
+    platform: 'browser', write: false,
+  }).outputFiles[0].text;
+  const result = await rendererValue(window, `() => {
+    ${script}
+    const input = document.querySelector('[data-composer-input][contenteditable="true"]');
+    if (!input) throw new Error('DSH composer missing');
+    input.blur();
+    const focused = MinkeComposerActions.focusComposerInput() && document.activeElement === input;
+    input.blur();
+    input.contentEditable = 'false';
+    const readonlyRefused = !MinkeComposerActions.focusComposerInput();
+    input.contentEditable = 'true';
+    input.setAttribute('aria-disabled', 'true');
+    const disabledRefused = !MinkeComposerActions.focusComposerInput();
+    input.removeAttribute('aria-disabled');
+    return { focused, readonlyRefused, disabledRefused };
+  }`);
+  assert.deepEqual(result, { focused: true, readonlyRefused: true, disabledRefused: true });
+  trace('composer focus adapter respects the real editable, read-only and disabled DOM');
+}
+
 async function run() {
   trace('preparing isolated runtime');
   const suppliedTemporaryRoot = process.env[TEMP_ROOT_ENV];
@@ -1004,6 +1001,7 @@ async function run() {
       'the reloaded Harness React root',
     );
     await selectConversation(window, conversationTitle);
+    await verifyComposerFocus(window);
     await promptThroughComposer(window, OPEN_PROMPT);
     trace(`conversation ${created.sessionId} prompted through the composer`);
 
@@ -1116,10 +1114,10 @@ async function run() {
     );
     const browserClickTool =
       model.requests[activeRequestIndex].tools.find(
-        (entry) => entry?.function?.name === 'browser_click',
+        (entry) => entry?.name === 'browser_click',
       );
     const targetProperties =
-      browserClickTool?.function?.parameters?.properties
+      browserClickTool?.input_schema?.properties
         ?.target?.properties;
     assert.notEqual(targetProperties, undefined);
     assert.equal(Object.hasOwn(targetProperties, 'ordinal'), true);
@@ -1152,9 +1150,10 @@ async function run() {
       ].sort(),
     );
     assert.equal(
-      model.requestHeaders[activeRequestIndex]?.authorization,
-      'Bearer minke-agent-browser-e2e-key',
+      model.requestHeaders[activeRequestIndex]?.['x-api-key'],
+      'minke-agent-browser-e2e-key',
     );
+    assert.equal(model.requestHeaders[activeRequestIndex]?.['anthropic-version'], '2023-06-01');
     assert.equal(
       model.requestHeaders[activeRequestIndex]?.[
         'x-deepseek-harness-session-id'
@@ -1378,6 +1377,9 @@ async function run() {
       'human-control',
     );
     trace('human input reached the embedded page');
+    await require('./browser-comments-composer-runtime.cjs').verifyBrowserCommentDraft({
+      window, guest, model, rendererValue, waitFor,
+    });
     const originalGuestId = guest.id;
     await rendererValue(window, `() => {
       window.__minkeTestGuest = document.querySelector('.minke-agent-browser__guest');
