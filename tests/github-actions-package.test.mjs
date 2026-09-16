@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { load } from "js-yaml";
 
 const workflowUrl = new URL(
   "../.github/workflows/package.yml",
@@ -52,6 +53,30 @@ function withWindowsLineEndings(source) {
   return source.replace(/\r?\n/gu, "\r\n");
 }
 
+test("Linux packaging prepares the pinned DSH sandbox before runtime checks", async () => {
+  const workflow = load(await readFile(workflowUrl, "utf8"));
+  const steps = workflow.jobs.package.steps;
+  const prepareIndex = steps.findIndex(
+    (step) => step.name === "Prepare Linux sandbox",
+  );
+  assert.notEqual(prepareIndex, -1, "Linux sandbox preparation is required");
+  assert.deepEqual(steps[prepareIndex], {
+    name: "Prepare Linux sandbox",
+    if: "runner.os == 'Linux'",
+    run: "bash vendor/deepseek-harness/scripts/prepare-ci-bubblewrap.sh",
+  });
+  for (const command of [
+    "pnpm harness:stage",
+    "pnpm test:desktop",
+    "pnpm harness:smoke:packaged",
+  ]) {
+    assert.ok(
+      steps.findIndex((step) => step.run === command) > prepareIndex,
+      `Linux sandbox preparation must precede ${command}`,
+    );
+  }
+});
+
 test("GitHub Actions packages each supported desktop platform", async () => {
   const source = await readFile(workflowUrl, "utf8");
 
@@ -79,15 +104,6 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   );
   assert.match(source, /submodules:\s*recursive/u);
   assert.match(source, /persist-credentials:\s*false/u);
-  assert.match(
-    source,
-    /name:\s*Prepare Linux sandbox\s*\n\s*if:\s*runner\.os == 'Linux'\s*\n\s*run:\s*bash vendor\/deepseek-harness\/scripts\/prepare-ci-bubblewrap\.sh/u,
-  );
-  assert.ok(
-    source.indexOf("- name: Prepare Linux sandbox") <
-      source.indexOf("- name: Stage Harness runtime"),
-    "Linux sandbox preparation must precede runtime staging and validation",
-  );
   assert.match(
     source,
     /uses:\s*pnpm\/action-setup@0e279bb959325dab635dd2c09392533439d90093\s+# v6\.0\.8/u,

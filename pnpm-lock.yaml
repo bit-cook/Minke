@@ -125,6 +125,9 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      js-yaml:
+        specifier: 4.3.1
+        version: 4.3.1
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
@@ -1289,6 +1292,9 @@ packages:
     os: [darwin]
     hasBin: true
 
+  argparse@2.0.1:
+    resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
+
   async@1.5.2:
     resolution: {integrity: sha512-nSVgobk4rv61R9PUSDtYt7mPVB2olxNR5RWJcAsH676/ef11bUZwvu7+RGYrYauVdDPcO519v68wRhXQtxsV9w==}
 
@@ -2044,6 +2050,10 @@ packages:
 
   jose@6.2.9:
     resolution: {integrity: sha512-XrchZOFZUl/T3vTwRe8XK+cJrGtMF4th1ARnDfwbBXFKThGhlsxEE4Zu03AD/bjJSt/9jT/mxrOCkJWOg77aPA==}
+
+  js-yaml@4.3.1:
+    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
+    hasBin: true
 
   json-buffer@3.0.1:
     resolution: {integrity: sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==}
@@ -4579,6 +4589,8 @@ snapshots:
       repeat-string: 1.6.1
     optional: true
 
+  argparse@2.0.1: {}
+
   async@1.5.2:
     optional: true
 
@@ -5452,6 +5464,10 @@ snapshots:
   jiti@2.7.0: {}
 
   jose@6.2.9: {}
+
+  js-yaml@4.3.1:
+    dependencies:
+      argparse: 2.0.1
 
   json-buffer@3.0.1: {}
 
