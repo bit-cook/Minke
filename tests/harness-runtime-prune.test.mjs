@@ -27,7 +27,13 @@ async function withTemporaryRuntime(callback) {
   try {
     await callback(root);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    // Windows can briefly retain the executable image after the child exits.
+    await rm(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   }
 }
 
