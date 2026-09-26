@@ -277,6 +277,9 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     viewport.scrollTop = 0;
     return true;
   }`);
+  // macOS can clamp the initial window to the display's work area. Restore
+  // that actual content size after the short-window check, not a requested size.
+  const [restoredWidth, restoredHeight] = window.getContentSize();
   const panelWidth = await rendererValue(window, `() => {
     const panel = document.querySelector('[data-sidebar-right-panel]');
     const width = panel.style.width;
@@ -301,16 +304,16 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     }`);
     assert.ok(scroll.top > 0 && scroll.lastBottom <= scroll.viewportBottom + 1, 'short Start pages scroll to the final card within CSS scroll rounding: ' + JSON.stringify(scroll));
   } finally {
-    window.setContentSize(1280, 800);
-    await waitFor(() => rendererValue(window, '() => innerHeight === 800'), 'restored Start viewport');
+    window.setContentSize(restoredWidth, restoredHeight);
+    await waitFor(() => rendererValue(window, `() => innerWidth === ${restoredWidth} && innerHeight === ${restoredHeight}`), `restored Start viewport ${restoredWidth}x${restoredHeight}`);
     await rendererValue(window, `() => { document.querySelector('[data-sidebar-right-panel]').style.width = ${JSON.stringify(panelWidth)}; return true; }`);
   }
 
   // Source input at the failing seam is now green; also exercise the same
   // global actions at compact widths and while DSH owns fullscreen.
   for (const width of [980, 1600, 1280]) {
-    window.setContentSize(width, 800);
-    await waitFor(() => rendererValue(window, `() => innerWidth === ${width}`), 'window resize');
+    window.setContentSize(width, restoredHeight);
+    await waitFor(() => rendererValue(window, `() => innerWidth === ${width} && innerHeight === ${restoredHeight}`), `window resize ${width}x${restoredHeight}`);
     await new Promise(resolve => setTimeout(resolve, 300));
     assert.deepEqual(await layout(), [], `layout controls at width ${width}`);
     await assertGuideLayout(`Sidebar at width ${width}`);
@@ -417,9 +420,11 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   await waitFor(() => rendererValue(window, `() => document.activeElement?.matches('[data-minke-tabs-create-menu] [role="menuitem"]')`), 'keyboard menu focus');
   pressKey('End');
   await waitFor(() => rendererValue(window, `() => document.activeElement === [...document.querySelectorAll('[data-minke-tabs-create-menu] [role="menuitem"]')].at(-1)`), 'keyboard navigation to last menu item');
-  await click('[data-sidebar-right-guide-entry="terminal"] button[aria-label="Choose shell"]');
+  // The open menu can cover guide actions on compact displays. Exercise an
+  // outside click in the conversation, where its intended target stays exposed.
+  await click('[data-composer-input][contenteditable="true"]');
   await waitFor(() => rendererValue(window, `() => !document.querySelector('[data-minke-tabs-create-menu]')`), 'outside click dismisses add menu');
-  pressKey('Escape');
+  assert.equal(await rendererValue(window, `() => document.activeElement?.matches('[data-composer-input][contenteditable="true"]')`), true, 'the outside click reaches the composer');
   process.stdout.write('[sidebar-ui] grouped add menu, cancellation, and keyboard navigation passed\n');
 
   // Exercise the provider-owned guide, two independent native shells, and cleanup
