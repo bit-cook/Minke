@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { buildSync } from "esbuild";
 import {
   isCommandUnavailableResult,
   resolveCommandInvocation,
@@ -511,20 +513,30 @@ test("Harness staging contract supports Windows line endings", async () => {
 });
 
 test("Linux makers target the packaged executable with matching case", async () => {
-  const forgeSource = await readFile(
-    new URL("../forge.config.ts", import.meta.url),
-    "utf8",
+  const forgeUrl = new URL("../forge.config.ts", import.meta.url);
+  const { outputFiles } = buildSync({
+    entryPoints: [fileURLToPath(forgeUrl)],
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    packages: "external",
+    write: false,
+  });
+  const loaded = { exports: {} };
+  // Resolve the real Maker configurations without running hooks or installers.
+  new Function("module", "exports", "require", "__dirname", outputFiles[0].text)(
+    loaded, loaded.exports, createRequire(forgeUrl), dirname(fileURLToPath(forgeUrl)),
   );
-
-  for (const maker of ["MakerRpm", "MakerDeb"]) {
-    const makerStart = forgeSource.indexOf(`new ${maker}({`);
-    const makerEnd = forgeSource.indexOf("\n    }),", makerStart);
-    assert.ok(makerStart >= 0, `${maker} must be configured`);
-    assert.ok(makerEnd > makerStart, `${maker} config must be complete`);
-    assert.match(
-      forgeSource.slice(makerStart, makerEnd),
-      /options:\s*\{[\s\S]*?\bbin:\s*"Minke",/u,
-      `${maker} must use the case-sensitive packaged executable name`,
+  const config = loaded.exports.default;
+  assert.equal(config.packagerConfig.executableName, "Minke");
+  for (const name of ["rpm", "deb"]) {
+    const maker = config.makers.find(candidate => candidate.name === name);
+    assert.ok(maker, `${name} must be configured`);
+    await maker.prepareConfig("x64");
+    assert.equal(
+      maker.config.options.bin,
+      config.packagerConfig.executableName,
+      `${name} must use the case-sensitive packaged executable name`,
     );
   }
 });

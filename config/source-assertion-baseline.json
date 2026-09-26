@@ -1,7 +1,7 @@
 {
   "tests/appimage-packaging.test.mjs": 8,
   "tests/bootstrap-theme.test.mjs": 3,
-  "tests/cross-platform-packaging.test.mjs": 7,
+  "tests/cross-platform-packaging.test.mjs": 6,
   "tests/data-home-settings.test.mjs": 3,
   "tests/embedded-node-permissions.test.mjs": 10,
   "tests/agent-browser-tabs.test.mjs": 17,
