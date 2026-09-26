@@ -44,3 +44,5 @@ docs/research
 *.njsproj
 *.sln
 *.sw?
+
+todo_app/
