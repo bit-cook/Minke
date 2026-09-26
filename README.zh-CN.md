@@ -19,22 +19,17 @@
   <a href="https://www.buymeacoffee.com/lencx"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="请我喝杯咖啡" height="20"></a>
 </p>
 
-Minke 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的本地优先桌面智能体工作空间。你可以围绕对话、项目文件、终端和可见的浏览器标签页与 Agent 协作，随时接管网页操作、检查和编辑产出的文件，也可以从其他设备访问工作空间。
+Minke 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的本地优先桌面智能体工作空间，将对话、文件、终端和浏览器整合在一起，支持 macOS、Windows 和 Linux。会话和配置保存在本机。
 
-> [!IMPORTANT]
-> Minke 正在持续开发中，功能、打包方式和本地数据结构可能随项目迭代发生变化。本 README 描述当前源码，已发布安装包的功能可能有所不同。Minke 是独立的社区项目，并非 DeepSeek 官方产品。
+> Minke 是独立社区项目，正在持续开发中；已发布安装包可能与当前源码有所不同。
 
 ## 核心亮点
 
-Minke 在 Harness 智能体能力的基础上，提供浏览器共同控制、桌面工作空间、远程访问和本地模型管理。
-
-- **Agent Browser 与人机协作** — Agent 可以在可见的浏览器标签页中搜索、打开并操作网页；你可以在不关闭当前标签页的情况下接管、完成后交还给 Agent，也可以把带标注的页面上下文发回对话。
-- **灵活的工作空间与文件编辑** — 通过 Harness 侧栏的分屏、浮动和全屏标签页，以及 Minke 独立的底栏，将文件、终端、网页、浏览历史和插件发现放在对话旁边。直接编辑源码、审阅每轮文件变更、预览 Markdown 和 HTML 草稿，并在侧栏查看 Word、Excel 和 PowerPoint 文件。
-- **智能体工作流与会话历史** — 使用 Harness 的智能体预设（Agent Presets）、计划、目标、技能和子代理。在侧栏查看提交的计划和子代理会话，通过对话轮次目录浏览长会话、导出会话日志，也可以让 Agent 安排会话内的定时跟进。
-- **在常用设备和应用中远程使用** — 从手机或其他电脑打开支持 PWA 的响应式 Web 工作空间，或通过微信、Telegram 与 Discord 向 Minke 电脑上的 Agent 发起任务。Web 私密访问支持 Tailscale 和 Cloudflare Access。
-- **云端与本地模型** — 使用 Harness 的模型提供方和自定义端点，并通过 Minke 发现 LM Studio、Ollama 中的模型，按需启用服务自动启动。其他仅监听本机回环地址的 OpenAI 兼容服务也可手动配置。
-- **原生插件管理** — 通过 Harness 的 Plugins 页面安装、配置和实时启停插件，Minke 提供插件发现与安全模式恢复。
-- **桌面集成与本地存储** — macOS、Windows 和 Linux 版本提供原生菜单、自定义快捷键、内置更新、主题同步及中英文界面。Session、设置、浏览历史和浏览器会话数据保留在你的电脑上。
+- **浏览器共同操作** — Agent 在可见的网页中执行任务，你可以随时接管，并将页面标注发回对话。
+- **一体化工作空间** — 并排使用对话、文件和终端，通过分屏与底栏组织工作，直接编辑文件、预览文档和审阅修改。
+- **跨设备访问** — 从手机或其他电脑通过 Web / PWA 访问工作空间，也可以通过微信、Telegram 和 Discord 发起任务。
+- **云端与本地模型** — 使用云端模型或自定义接口，自动发现 LM Studio、Ollama 模型，并按需启动本地服务。
+- **智能体与插件扩展** — 使用 DSH 的预设、技能、子代理和定时任务，通过原生插件管理扩展能力。
 
 <table>
   <tr>

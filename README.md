@@ -19,22 +19,17 @@
   <a href="https://www.buymeacoffee.com/lencx"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" height="20"></a>
 </p>
 
-Minke is a local-first desktop agent workspace powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Work with an agent across conversations, project files, terminals, and visible browser tabs. Take over a page when needed, review and edit the resulting files, or access your workspace from another device.
+Minke brings conversations, files, terminals, and a shared browser into a local-first desktop agent workspace powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Available on macOS, Windows, and Linux, with sessions and settings stored on your computer.
 
-> [!IMPORTANT]
-> Minke is under active development. Features, packaging, and the local data schema may change as the project evolves. This README describes the current source; packaged releases may differ. Minke is an independent community project, not an official DeepSeek product.
+> Minke is an independent community project under active development. Packaged releases may differ from the current source.
 
 ## Highlights
 
-Minke builds on Harness's agent capabilities with shared browser control, an integrated desktop workspace, remote access, and local model management.
-
-- **Agent Browser with shared control** — Agents can search, open, and interact with the Web in visible browser tabs. Take control of a live tab without closing it, hand it back when ready, or send annotated page context to the conversation.
-- **Flexible workspace and file editing** — Arrange Files, Terminal, Web, Browser History, and plugin discovery beside the conversation using Harness's split, floating, and fullscreen sidebar tabs, plus Minke's independent bottom panel. Edit source, review each turn's file changes, preview Markdown and HTML drafts, and view Word, Excel, and PowerPoint files in the sidebar.
-- **Agent workflows and conversation history** — Use Harness's Agent Presets, planning, goals, skills, and subagents. Review submitted plans and subagent conversations in the sidebar, navigate long conversations through the turn outline, export session logs, and ask the agent to schedule follow-ups in the conversation.
-- **Remote access where you already work** — Open your workspace from a phone or another computer through a responsive Web client with PWA support, or use WeChat, Telegram, and Discord to run tasks on the Minke computer. Private Web access supports Tailscale and Cloudflare Access.
-- **Cloud and local models** — Use Harness's model providers and custom endpoints, with Minke's model discovery and optional service auto-start for LM Studio and Ollama. Other loopback OpenAI-compatible services can be configured manually.
-- **Native plugin management** — Install, configure, and live-toggle plugins through Harness’s Plugins page. Minke adds plugin discovery and safe-mode recovery.
-- **Desktop integration and local storage** — macOS, Windows, and Linux builds provide native menus, customizable shortcuts, built-in updates, synchronized themes, and English and Chinese UI. Sessions, settings, Browser History, and browser session data remain on your machine.
+- **Shared browser control** — Watch the agent work in visible browser tabs, take over at any time, and send annotated page context back to the conversation.
+- **One workspace** — Keep conversations, files, and terminals side by side. Organize work with split views and a bottom panel; edit files, preview documents, and review changes in place.
+- **Access across devices** — Reach your workspace through Web / PWA on a phone or another computer, or start tasks through WeChat, Telegram, and Discord.
+- **Cloud and local models** — Use cloud providers or custom endpoints, discover LM Studio and Ollama models, and optionally start local services.
+- **Agents and plugins** — Use DSH's presets, skills, subagents, and scheduled tasks, and extend the workspace through native plugin management.
 
 <table>
   <tr>
