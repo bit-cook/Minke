@@ -74,7 +74,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes fakeroot rpm
+          sudo apt-get install --yes fakeroot rpm xvfb xauth
 
       # Match the pinned DSH CI environment: restricted PTC execution needs
       # bubblewrap and permission to create namespaces on the hosted runner.
@@ -124,6 +124,16 @@ jobs:
       - name: Test Agent Browser conversation
         if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
         run: pnpm test:desktop:agent-browser-conversation:prepared
+
+      - name: Test sidebar UI
+        if: runner.os != 'Linux'
+        timeout-minutes: 15
+        run: pnpm test:desktop:sidebar:prepared
+
+      - name: Test sidebar UI on Linux
+        if: runner.os == 'Linux'
+        timeout-minutes: 15
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1440x1000x24" pnpm test:desktop:sidebar:prepared
 
       - name: Build AppImage from deb
         if: runner.os == 'Linux'

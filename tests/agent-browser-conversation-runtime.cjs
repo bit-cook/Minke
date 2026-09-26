@@ -26,6 +26,7 @@ const {
   webContents,
 } = require('electron');
 const { buildSync } = require('esbuild');
+const { subagentScenario, verifySubagentSidebarUI } = require('./subagent-sidebar-ui.cjs');
 
 const projectRoot = join(__dirname, '..');
 const runtimeRoot = join(projectRoot, 'runtime', 'host');
@@ -69,6 +70,11 @@ function loadDesktopSource() {
       bindTabs,
     } from "./desktop/main/tabs/index.ts";
     export { macOSWindowOptions } from "./desktop/main/macos-window.ts";
+    export { bindPluginRecoveryIpc } from "./desktop/main/plugin-recovery-ipc.ts";
+    export { PluginRecoveryRuntime } from "./desktop/main/plugin-recovery.ts";
+    export { bindDirectoryPickerIpc } from "./desktop/main/directory-picker.ts";
+    export { bindTerminalSettingsIpc } from "./desktop/main/terminal-settings.ts";
+    export { MinkeConfigStore } from "./desktop/main/minke-config.ts";
   `;
   const bundled = buildSync({
     alias: {
@@ -195,11 +201,14 @@ function lastMessageText(body, role) {
 }
 
 function allMessageText(body, role) {
-  if (role === 'system') return contentText(body.system);
-  return messagesOf(body)
+  const historyText = messagesOf(body)
     .filter((message) => message?.role === role)
     .map((message) => contentText(message.content))
     .join('\n');
+  // Native in-history prompt updates preserve the initial system prefix.
+  return role === 'system'
+    ? [contentText(body.system), historyText].join('\n')
+    : historyText;
 }
 
 function toolResults(body) {
@@ -323,6 +332,21 @@ async function startDynamicModelServer(browserUrl) {
           args,
         );
       };
+
+      if (userText.includes(subagentScenario.childPrompt) && !userText.includes(subagentScenario.parentPrompt)) {
+        sendText(response, userText.includes(subagentScenario.followupPrompt)
+          ? subagentScenario.followupReply : subagentScenario.childReply);
+        return;
+      }
+      if (userText.includes(subagentScenario.parentPrompt) && availableTools.includes('subagent')) {
+        if (latestTool !== '') sendText(response, subagentScenario.parentReply);
+        else call('subagent', {
+          description: subagentScenario.childTitle,
+          prompt: subagentScenario.childPrompt,
+          run_in_background: true,
+        });
+        return;
+      }
 
       // The Harness keeps prior user turns in context, so the close prompt
       // request also contains OPEN_PROMPT. Resolve the newest workflow first.
@@ -685,11 +709,11 @@ async function selectConversation(window, title) {
   );
 }
 
-async function promptThroughComposer(window, prompt) {
+async function promptThroughComposer(window, prompt, scopeSelector = 'body') {
   await rendererValue(
     window,
     `() => {
-      const input = document.querySelector(
+      const input = document.querySelector(${JSON.stringify(scopeSelector)})?.querySelector(
         '[data-composer-input][contenteditable="true"]'
       );
       if (!(input instanceof HTMLElement)) {
@@ -709,7 +733,7 @@ async function promptThroughComposer(window, prompt) {
     () => rendererValue(
       window,
       `() => {
-        const input = document.querySelector(
+        const input = document.querySelector(${JSON.stringify(scopeSelector)})?.querySelector(
           '[data-composer-input][contenteditable="true"]'
         );
         return input instanceof HTMLElement &&
@@ -724,7 +748,7 @@ async function promptThroughComposer(window, prompt) {
     () => rendererValue(
       window,
       `() => {
-        const card = document.querySelector("[data-composer-card]");
+        const card = document.querySelector(${JSON.stringify(scopeSelector)})?.querySelector("[data-composer-card]");
         const button = card?.querySelector(
           'button[aria-label="Send message"],' +
           'button[aria-label="发送消息"]'
@@ -739,7 +763,7 @@ async function promptThroughComposer(window, prompt) {
   await rendererValue(
     window,
     `() => {
-      const card = document.querySelector("[data-composer-card]");
+      const card = document.querySelector(${JSON.stringify(scopeSelector)})?.querySelector("[data-composer-card]");
       const button = card?.querySelector(
         'button[aria-label="Send message"],' +
         'button[aria-label="发送消息"]'
@@ -755,7 +779,7 @@ async function promptThroughComposer(window, prompt) {
     () => rendererValue(
       window,
       `() => {
-        const input = document.querySelector(
+        const input = document.querySelector(${JSON.stringify(scopeSelector)})?.querySelector(
           '[data-composer-input][contenteditable="true"]'
         );
         return input instanceof HTMLElement &&
@@ -829,6 +853,9 @@ async function run() {
 
   let window;
   let tabsBinding;
+  let pluginRecoveryBinding;
+  let directoryPickerBinding;
+  let terminalSettingsBinding;
   let harness;
   let agentBrowser;
   try {
@@ -840,6 +867,11 @@ async function run() {
       SqliteAgentBrowserHistory,
       bindTabs,
       macOSWindowOptions,
+      bindPluginRecoveryIpc,
+      PluginRecoveryRuntime,
+      bindDirectoryPickerIpc,
+      bindTerminalSettingsIpc,
+      MinkeConfigStore,
     } = loadDesktopSource();
     const browserHistory = new SqliteAgentBrowserHistory({
       path: join(
@@ -895,11 +927,16 @@ async function run() {
     });
     const harnessOrigin = harnessEndpoint.origin;
     const openedFilePaths = [];
+    const openedExternalUrls = [];
+    const config = new MinkeConfigStore(temporaryRoot);
+    await config.terminal.write({ fontFamily: 'monospace', fontSize: 16, lineHeight: 1.3 });
+    terminalSettingsBinding = bindTerminalSettingsIpc(ipcMain, config.terminal,
+      event => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame);
     tabsBinding = bindTabs(
       ipcMain,
       window.webContents,
       {
-        async openExternal() {},
+        async openExternal(url) { openedExternalUrls.push(url); },
         async openPath(path) {
           openedFilePaths.push(path);
           return '';
@@ -916,25 +953,60 @@ async function run() {
           }
         })(),
       {
-        runtimeRoot,
-        electronExecutable: process.execPath,
-        defaultCwd: workspace,
         fileSystemRoot: parse(workspace).root,
-        minkeConfigPath: join(temporaryRoot, 'minke-config.json'),
-        environment: { ...process.env },
+        minkeConfigPath: config.path,
         agentBrowser,
         prepareWebSession() {},
       },
     );
-    await window.loadURL(harnessEndpoint.authenticatedUrl);
-    // Exercise a displayed UI like the application does. A permanently hidden
-    // embedder can suspend retained-tab layout on hosted macOS runners.
-    window.showInactive();
+    pluginRecoveryBinding = bindPluginRecoveryIpc(ipcMain, new PluginRecoveryRuntime({
+      runtimeRoot, dshHome, electronExecutable: process.execPath,
+    }), event => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame,
+    () => { throw new Error('The UI regression must not restart the test desktop'); });
+    let pickedDirectory = workspace;
+    let directoryPickCalls = 0;
+    directoryPickerBinding = bindDirectoryPickerIpc(ipcMain, {
+      currentWindow: () => window,
+      authorize: event => event.sender === window.webContents && new URL(event.senderFrame.url).origin === harnessOrigin,
+      showOpenDialog: async (owner, options) => {
+        assert.equal(owner, window);
+        assert.deepEqual(options.properties, ['openDirectory', 'createDirectory']);
+        directoryPickCalls++;
+        return pickedDirectory === null ? { canceled: true, filePaths: [] } : { canceled: false, filePaths: [pickedDirectory] };
+      },
+    });
+    // Seed the isolated workspace before any client can initialize rc.2's
+    // default Documents workspace. Use the same cookie bootstrap as the app,
+    // without rendering the response or exposing its launch capability.
+    const bootstrap = await window.webContents.session.fetch(harnessEndpoint.authenticatedUrl);
+    assert.equal(bootstrap.ok, true);
+    await bootstrap.arrayBuffer();
+    const harnessCookie = (
+      await window.webContents.session.cookies.get({ url: harnessOrigin })
+    ).map(({ name, value }) => `${name}=${value}`).join('; ');
+    assert.notEqual(harnessCookie, '');
+    const registeredWorkspace = await rpc(harnessUrl, 'workspace/create', { path: workspace }, harnessCookie);
+    const created = await rpc(harnessUrl, 'session/create', {
+      workspaceId: registeredWorkspace.workspace.workspaceId,
+      sessionId: 'minke-agent-browser-conversation-e2e',
+      agentPreset: 'standard',
+    }, harnessCookie);
+    assert.equal(created.sessionId, 'minke-agent-browser-conversation-e2e');
+    await window.loadURL(harnessUrl);
+    // Electron's input injection requires focus, including hover/click targets.
+    // A displayed but inactive macOS window can route events to stale targets.
+    window.show();
+    window.focus();
     await waitFor(
       () => rendererValue(window, `() => document.visibilityState === 'visible'`),
       'the displayed Harness window',
     );
     trace('production renderer loaded');
+    assert.equal(await rendererValue(window, `() => window.__DSH_DIRECTORY_PICKER__.pick()`), workspace);
+    pickedDirectory = null;
+    assert.equal(await rendererValue(window, `() => window.__DSH_DIRECTORY_PICKER__.pick()`), null);
+    assert.equal(directoryPickCalls, 2);
+    trace('native directory picker preload and IPC selected and canceled');
     await waitFor(
       () => rendererValue(
         window,
@@ -943,55 +1015,31 @@ async function run() {
       'Harness React root',
     );
     trace('Harness React root mounted');
-    const harnessCookie = (
-      await window.webContents.session.cookies.get({
-        url: harnessOrigin,
-      })
-    )
-      .map(({ name, value }) => `${name}=${value}`)
-      .join('; ');
-    assert.notEqual(harnessCookie, '');
-
-    // Exercise the real link interception path before any Session is selected.
+    // Exercise real link interception on the initial blank Session.
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-minke-new-session-tabs-action]') !== null`), 'start-page tab controls');
     await rendererValue(window, `() => {
       const link = document.createElement('a');
       link.href = ${JSON.stringify(fixture.url)};
-      link.textContent = 'Fallback browser fixture';
+      link.textContent = 'Blank Session browser fixture';
       document.body.append(link);
       link.click();
       link.remove();
       return true;
     }`);
     await waitFor(() => rendererValue(window, `() => {
-      const panel = document.querySelector('.minke-tabs-panel[data-placement="right"][data-open]');
       const host = document.querySelector('.minke-tabs-native-host[data-kind="web"]');
       const guest = host?.querySelector('webview');
-      if (!panel || !host || host.inert || !guest?.getWebContentsId) return false;
+      if (!host?.checkVisibility({ checkVisibilityCSS: true }) || host.inert || !guest?.getWebContentsId) return false;
       const rect = host.getBoundingClientRect();
       const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
       if (hit?.closest('[data-minke-tab-instance]') !== host) return false;
       return guest.getWebContentsId();
-    }`), 'start-page browser to paint above its fallback shell');
-    trace('start-page Web content painted above its fallback shell');
-
-    const registeredWorkspace = await rpc(
-      harnessUrl,
-      'workspace/create',
-      { path: workspace },
-      harnessCookie,
-    );
-    const created = await rpc(harnessUrl, 'session/create', {
-      workspaceId: registeredWorkspace.workspace.workspaceId,
-      sessionId: 'minke-agent-browser-conversation-e2e',
-      agentPreset: 'standard',
-    }, harnessCookie);
-    assert.equal(
-      created.sessionId,
-      'minke-agent-browser-conversation-e2e',
-    );
+    }`), 'start-page browser to paint above the initial Sidebar');
+    trace('start-page Web content painted above the initial Sidebar');
     if (process.env.MINKE_SIDEBAR_UI_E2E === '1') {
       await require('./native-sidebar-ui.cjs').verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl: fixture.url, rendererValue, waitFor, workspace, openedFilePaths });
+      await verifySubagentSidebarUI({ window, harnessUrl, harnessCookie, parentSessionId: created.sessionId,
+        rpc, rendererValue, waitFor, waitForAssistantMarker, promptThroughComposer, openedExternalUrls });
       return;
     }
     await rpc(harnessUrl, 'session/prompt', {
@@ -1142,11 +1190,18 @@ async function run() {
     assert.equal(Object.hasOwn(targetProperties, 'ordinal'), true);
     assert.equal(Object.hasOwn(targetProperties, 'index'), false);
     assert.match(
-      allMessageText(
-        model.requests[activeRequestIndex],
-        'system',
-      ),
+      // Tool additions also use system messages, but carry no prompt text.
+      messagesOf(model.requests[activeRequestIndex])
+        .filter((message) => message?.role === 'system')
+        .map((message) => contentText(message.content))
+        .filter((text) => text.trim().length > 0)
+        .at(-1) ?? '',
       /OBSERVE → RESOLVE → ACT → VERIFY/u,
+    );
+    assert.deepEqual(
+      model.requests[activeRequestIndex].system,
+      model.requests[bootstrapRequestIndex].system,
+      'native prompt updates retain the cacheable initial system prefix',
     );
     assert.deepEqual(
       activeSurface
@@ -1235,6 +1290,7 @@ async function run() {
           tabAnimation:
             getComputedStyle(tab).animationName,
           tabRadius: getComputedStyle(tab).borderRadius,
+          nativeTabRadius: getComputedStyle(tab).getPropertyValue('--dsw-radius-sm').trim(),
           tabCornerShape: getComputedStyle(tab).getPropertyValue('corner-shape'),
           tabShadow: getComputedStyle(tab).boxShadow,
           tabBackground: getComputedStyle(tab).backgroundImage,
@@ -1242,7 +1298,9 @@ async function run() {
         };
       }`,
     );
-    assert.equal(agentControlStyling.tabRadius, '12px');
+    assert.notEqual(agentControlStyling.nativeTabRadius, '');
+    assert.equal(agentControlStyling.tabRadius, agentControlStyling.nativeTabRadius,
+      'the Agent control signal retains the native tab silhouette');
     assert.equal(agentControlStyling.tabShadow, 'none');
     assert.equal(agentControlStyling.highlightContent, 'none');
     assert.match(agentControlStyling.tabBackground, /repeating-linear-gradient/);
@@ -1405,10 +1463,10 @@ async function run() {
       document.querySelector('[data-dockkit-add-tab]').click();
       return true;
     }`);
-    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-minke-tabs-create-menu] [role="group"][aria-label="DSH"] [role="menuitem"]') !== null`), 'DSH group in the add-tab menu');
-    assert.equal(await rendererValue(window, `() => document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)').inert`), false, 'opening the menu keeps the browser visible');
+    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-minke-tabs-create-menu] [data-option^="dsh:files:"]') !== null`), 'DSH Files entry in the add menu');
+    assert.equal(await rendererValue(window, `() => document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)').inert`), false, 'opening the add menu keeps the current browser visible');
     await rendererValue(window, `() => {
-      document.querySelector('[data-minke-tabs-create-menu] [role="group"][aria-label="DSH"] [role="menuitem"]').click();
+      document.querySelector('[data-minke-tabs-create-menu] [data-option^="dsh:files:"]').click();
       return true;
     }`);
     await waitFor(() => rendererValue(window, `() =>
@@ -1433,12 +1491,18 @@ async function run() {
     trace('native tab switching retained the same DOM node, WebContents and human input');
 
     await assertRetainedBrowserPosition(window, 'tab switching');
+    await waitFor(() => rendererValue(window, `() =>
+      !document.getAnimations().some(animation =>
+        (animation.playState === 'running' || animation.pending) &&
+        animation.effect?.getComputedTiming().endTime !== Infinity)
+    `), 'native tab transitions to finish before measuring idle layout work');
     const idleGeometryReads = await rendererValue(window, `async () => {
       const host = document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)');
       const seat = [...document.querySelectorAll('[data-minke-tab-viewport]')].find(element =>
         element.dataset.minkeTabViewport === host.dataset.minkeTabInstance && element.dataset.visible === 'true');
       const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
-      for (let index = 0; index < 24; index++) await frame();
+      // Flush observer callbacks queued by the completed transition.
+      await frame(); await frame();
       const original = seat.getBoundingClientRect;
       let reads = 0;
       seat.getBoundingClientRect = function () { reads++; return original.call(this); };
@@ -1548,6 +1612,9 @@ async function run() {
     trace('cleaning up');
     await harness?.stop();
     tabsBinding?.dispose();
+    pluginRecoveryBinding?.dispose();
+    directoryPickerBinding?.dispose();
+    terminalSettingsBinding?.dispose();
     agentBrowser?.dispose();
     if (window !== undefined && !window.isDestroyed()) window.destroy();
     await Promise.allSettled([

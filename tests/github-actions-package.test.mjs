@@ -261,6 +261,29 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   );
 });
 
+test("sidebar UI regression runs on every package target before uploading artifacts", async () => {
+  const workflow = load(await readFile(workflowUrl, "utf8"));
+  const steps = workflow.jobs.package.steps;
+  const makeIndex = steps.findIndex(step => step.run === "pnpm make");
+  const uploadIndex = steps.findIndex(step => step.name === "Upload distributables");
+  const command = "pnpm test:desktop:sidebar:prepared";
+  const sidebarSteps = steps.filter(step => step.run?.includes(command));
+  assert.equal(sidebarSteps.length, 2);
+  for (const step of sidebarSteps) {
+    assert.ok(steps.indexOf(step) > makeIndex, "the prepared suite needs the built preload and staged runtime");
+    assert.ok(steps.indexOf(step) < uploadIndex, "UI regressions must block artifact upload");
+    assert.notEqual(step["continue-on-error"], true);
+    assert.equal(step["timeout-minutes"], 15);
+  }
+  assert.equal(sidebarSteps.find(step => step.if === "runner.os != 'Linux'")?.run, command);
+  assert.equal(
+    sidebarSteps.find(step => step.if === "runner.os == 'Linux'")?.run,
+    `xvfb-run --auto-servernum --server-args="-screen 0 1440x1000x24" ${command}`,
+  );
+  const prerequisites = steps.find(step => step.name === "Install Linux maker prerequisites");
+  assert.ok(prerequisites.run.includes("xvfb xauth"));
+});
+
 test("workflow dispatch can isolate the Windows package target", async () => {
   const source = await readFile(workflowUrl, "utf8");
 

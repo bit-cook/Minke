@@ -72,7 +72,13 @@ async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace,
   assert.equal(await rendererValue(window, `() => document.querySelector('${host} [data-document-markdown] table')?.textContent.includes('Ready')`), true, 'Markdown tables are rendered');
   await choose('source');
   await click(`${host} .cm-content`);
+  await waitFor(() => rendererValue(window, `() => document.activeElement === document.querySelector('${host} .cm-content')`), 'source editor keyboard focus');
   for (const type of ['keyDown', 'keyUp']) window.webContents.sendInputEvent({ type, keyCode: 'A', modifiers: [process.platform === 'darwin' ? 'meta' : 'control'] });
+  await waitFor(() => rendererValue(window, `() => {
+    const selection = window.getSelection();
+    const editor = document.querySelector('${host} .cm-content');
+    return editor.contains(selection?.anchorNode) && selection.toString().includes('Rendered notes') && selection.toString().includes('Preview | Ready');
+  }`), 'source select-all before replacing draft');
   await window.webContents.insertText('# Unsaved preview\n\nUpdated **draft**.');
   await waitFor(() => rendererValue(window, `() => document.querySelector('${host} .minke-files-preview__dirty') !== null`), 'dirty draft');
   await choose('preview');
