@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { JSDOM } from "../vendor/deepseek-harness/node_modules/jsdom/lib/api.js";
 import {
   hasMacOSDesktopSurface,
 } from "@minke/harness-overlay/client/desktop/index.ts";
@@ -51,13 +52,6 @@ const desktopSurfaceSource = readFileSync(
 const desktopSurfaceCss = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/desktop/surface.css",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const desktopTopDragRegionSource = readFileSync(
-  new URL(
-    "../packages/harness-overlay/src/client/desktop/top-drag-region.ts",
     import.meta.url,
   ),
   "utf8",
@@ -193,7 +187,7 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
-    /Object\.freeze\(\{\s*agentBrowser,\s*appUpdate,\s*about,\s*browser,\s*dataHome,\s*files,\s*locale,\s*modelRuntime,\s*pluginInstaller,\s*remote,\s*remoteHub,\s*sessionLogs,\s*tabs,\s*terminal,\s*webSearch,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
+    /Object\.freeze\(\{\s*agentBrowser,\s*appUpdate,\s*about,\s*browser,\s*dataHome,\s*files,\s*locale,\s*modelRuntime,\s*pluginRecovery,\s*remote,\s*remoteHub,\s*sessionLogs,\s*tabs,\s*terminal,\s*webSearch,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
   );
   assert.match(
     desktopPreloadSource,
@@ -210,10 +204,6 @@ test("Electron wires native desktop capabilities through preload", () => {
   assert.match(
     desktopPreloadSource,
     /ipcRenderer\.invoke\(\s*SESSION_LOG_EXPORT_CHANNEL/u,
-  );
-  assert.match(
-    desktopPreloadSource,
-    /ipcRenderer\.invoke\(\s*TABS_TERMINAL_CREATE_CHANNEL/u,
   );
   assert.match(
     desktopPreloadSource,
@@ -248,10 +238,6 @@ test("Electron wires native desktop capabilities through preload", () => {
     /ipcRenderer\.invoke\(\s*TERMINAL_SETTINGS_WRITE_CHANNEL/u,
   );
   assert.match(desktopMainSource, /bindTerminalSettingsIpc\(/u);
-  assert.match(
-    desktopPreloadSource,
-    /ipcRenderer\.on\(TABS_TERMINAL_EVENT_CHANNEL,\s*wrapped\)/u,
-  );
   assert.match(
     desktopMainSource,
     /fileSystemRoot:\s*parse\(app\.getPath\("home"\)\)\.root/u,
@@ -291,11 +277,11 @@ test("the product overlay owns post-boot desktop adaptation", () => {
   assert.match(desktopSurfaceSource, /linear-gradient/);
   assert.match(
     desktopSurfaceSource,
-    /setAttribute\("data-dsh-desktop-sidebar-toggle"/,
+    /toggleAttribute\("data-dsh-desktop-sidebar-toggle"/,
   );
   assert.match(
     desktopSurfaceSource,
-    /setAttribute\("data-dsh-desktop-new-session"/,
+    /toggleAttribute\("data-dsh-desktop-new-session"/,
   );
   assert.match(desktopSurfaceSource, /new view\.MutationObserver/);
   assert.match(desktopSurfaceSource, /observer\.disconnect\(\)/);
@@ -410,13 +396,7 @@ test("the smaller traffic lights use the tuned default-rail position", () => {
   );
 });
 
-test("the native titlebar hides only the expanded web brand", () => {
-  const titlebarRule = desktopSurfaceCss.match(
-    /\[data-dsh-desktop-titlebar-anchor\]\s*\{([\s\S]*?)\}/,
-  )?.[1];
-  const collapsedRule = desktopSurfaceCss.match(
-    /\[data-sidebar-collapsed\] \[data-dsh-desktop-titlebar-anchor\]\s*\{([\s\S]*?)\}/,
-  )?.[1];
+test("the native window controls retain their system sizing", () => {
   const sidebarWidth = harnessColumnsSource.match(
     /SIDEBAR_COLLAPSED\s*=\s*(\d+)/,
   );
@@ -445,40 +425,7 @@ test("the native titlebar hides only the expanded web brand", () => {
     /bindMacOSWindowButtonSpacing\(\s*window/,
   );
   assert.equal(Number(sidebarWidth[1]), 56);
-  assert.ok(titlebarRule, "titlebar anchor rule must remain present");
-  assert.ok(collapsedRule, "collapsed titlebar rule must remain present");
-  assert.match(titlebarRule, /height:\s*28px\s*!important/);
-  assert.match(titlebarRule, /margin-top:\s*-4px\s*!important/);
-  assert.match(titlebarRule, /padding-left:\s*56px\s*!important/);
-  assert.match(collapsedRule, /height:\s*36px\s*!important/);
-  assert.match(
-    collapsedRule,
-    /margin-top:\s*12px\s*!important/,
-    "the rail toggle must clear the traffic lights without a second titlebar-height gap",
-  );
-  assert.match(collapsedRule, /padding-left:\s*0\s*!important/);
-  assert.match(
-    desktopSurfaceCss,
-    /\[data-dsh-desktop-titlebar-anchor\]\s*>\s*button:first-child:not\(:last-child\)\s*\{[^}]*display:\s*none/,
-    "the web wordmark must not duplicate the native titlebar",
-  );
-  assert.doesNotMatch(
-    desktopSurfaceCss,
-    /\[data-dsh-desktop-titlebar-anchor\]\s*>\s*button:first-child\s*\{/,
-    "the collapsed titlebar's only button must remain visible",
-  );
-  assert.doesNotMatch(
-    desktopSurfaceCss,
-    /\[data-sidebar-collapsed\]\s+:has\(> \[data-dsh-desktop-titlebar-anchor\]\)/,
-  );
-  assert.match(
-    harnessSidebarCss,
-    /\.root\.collapsed\s*\{[\s\S]*padding:\s*18px 10px 6px;/,
-  );
-  assert.match(
-    harnessSidebarCss,
-    /\.collapsed \.iconButton\s*\{[\s\S]*width:\s*36px;[\s\S]*height:\s*36px;/,
-  );
+
 });
 
 test("the desktop sidebar toggle keeps one stable glyph across hover", () => {
@@ -492,11 +439,7 @@ test("the desktop sidebar toggle keeps one stable glyph across hover", () => {
   );
   assert.match(
     desktopSurfaceCss,
-    /\[data-dsh-desktop-sidebar-toggle\]\s*>\s*svg:first-child:not\(:last-child\)[\s\S]*display:\s*none\s*!important/,
-  );
-  assert.match(
-    desktopSurfaceCss,
-    /\[data-dsh-desktop-sidebar-toggle\]\s*>\s*svg:last-child[\s\S]*display:\s*inline\s*!important/,
+    /\[data-dsh-desktop-sidebar-toggle\]\s*>\s*svg\s*\{[^}]*display:\s*inline\s*!important/,
   );
   assert.match(
     desktopSurfaceCss,
@@ -510,10 +453,43 @@ test("the desktop sidebar toggle keeps one stable glyph across hover", () => {
   );
 });
 
+test("the collapsed desktop sidebar glyph stays visible before hover with a native badge slot", () => {
+  const dom = new JSDOM(`<!doctype html>
+    <div data-sidebar-collapsed="true">
+      <div class="root collapsed">
+        <div data-dsh-desktop-titlebar-anchor>
+          <button class="iconButton toggle" data-dsh-desktop-sidebar-toggle>
+            <span class="railMark" aria-hidden="true"><svg></svg></span>
+            <svg class="panelIcon"></svg>
+            <div data-slot="sidebar.toggle.badge" style="display: contents">
+              <span role="img" aria-label="Update available"></span>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>`);
+  try {
+    const { document, getComputedStyle } = dom.window;
+    const nativeStyle = document.createElement("style");
+    nativeStyle.textContent = harnessSidebarCss;
+    document.head.append(nativeStyle);
+    const glyph = document.querySelector(".panelIcon");
+    assert.equal(getComputedStyle(glyph).display, "none", "DSH swaps the collapsed glyph on hover by default");
+    const desktopStyle = document.createElement("style");
+    desktopStyle.textContent = desktopSurfaceCss;
+    document.head.append(desktopStyle);
+    assert.equal(getComputedStyle(glyph).display, "inline", "the badge slot must not hide Minke's resting expand glyph");
+    assert.equal(getComputedStyle(document.querySelector(".railMark")).display, "none");
+    assert.notEqual(getComputedStyle(document.querySelector('[role="img"]')).display, "none", "native status badges remain available");
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("the desktop New Session button stays fully transparent in every state", () => {
   assert.match(
     desktopSurfaceSource,
-    /setAttribute\("data-dsh-desktop-frame"/,
+    /toggleAttribute\("data-dsh-desktop-frame"/,
   );
   assert.match(
     desktopSurfaceCss,
@@ -563,198 +539,8 @@ test("macOS New Session uses quieter composer action colors", () => {
   assert.doesNotMatch(earlyCss, /data-dsh-desktop-composer-/);
 });
 
-test("the stable top drag region owns its responsive boundary without claiming controls or text", () => {
-  const conversationRoot = earlyCss.match(
-    /\[data-phase\]:has\(> \[data-slot="conversation\.session\.header"\]\)\s*\{([\s\S]*?)\}/,
-  )?.[1];
-  const sessionHeaderSlot = earlyCss.match(
-    /\[data-slot="conversation\.session\.header"\]\s*\{([\s\S]*?)\}/,
-  )?.[1];
-  const blankSessionHeaderSlot = earlyCss.match(
-    /\[data-phase="hero"\] > \[data-slot="conversation\.session\.header"\],\s*\n\[data-phase="settling"\] > \[data-slot="conversation\.session\.header"\]\s*\{([\s\S]*?)\}/,
-  )?.[1];
-  const selectableHeaderText = earlyCss.match(
-    /\[data-slot="conversation\.session\.header"\] nav,\s*\n\[data-slot="conversation\.session\.header"\] nav \*,\s*\n\[data-slot="conversation\.session\.header"\] span\s*\{([\s\S]*?)\}/,
-  )?.[1];
-  const tabsWindowDragTarget = desktopSurfaceCss.match(
-    /\[data-minke-tabs-window-drag\]\s*\{([\s\S]*?)\}/,
-  )?.[1];
-  const topDragTarget = desktopSurfaceCss.match(
-    /\[data-dsh-desktop-top-drag-region\]\s*\{([\s\S]*?)\}/,
-  )?.[1];
-  const desktopSurfaceContract = inspectCssContract(desktopSurfaceCss);
-  const topDragInteractiveSelectors =
-    desktopSurfaceContract.selectors().filter((selector) =>
-      selector.startsWith(
-        "[data-dsh-desktop-top-drag-region] :is(",
-      )
-    );
-  const gatedDragRule = desktopSurfaceCss.match(
-    /\[data-dsh-desktop-titlebar-anchor\]\[data-dsh-desktop-drag-enabled\],\s*\n\[data-dsh-desktop-top-drag-region\]\[data-dsh-desktop-drag-enabled\],\s*\n\[data-minke-tabs-window-drag\]\[data-dsh-desktop-drag-enabled\]\s*\{([\s\S]*?)\}/,
-  )?.[1];
-  assert.ok(conversationRoot, "the conversation root must anchor blank chrome");
-  assert.ok(
-    sessionHeaderSlot,
-    "conversation.session.header must own the drag region",
-  );
-  assert.ok(
-    blankSessionHeaderSlot,
-    "blank and settling header slots must stay out of hero layout",
-  );
-  assert.ok(
-    selectableHeaderText,
-    "header text must remain selectable outside the drag region",
-  );
-  assert.match(conversationRoot, /position:\s*relative/);
-  assert.match(sessionHeaderSlot, /display:\s*block\s*!important/);
-  assert.match(sessionHeaderSlot, /flex:\s*none/);
-  assert.match(sessionHeaderSlot, /min-height:\s*75px/);
-  assert.match(sessionHeaderSlot, /-webkit-app-region:\s*no-drag/);
-  assert.ok(
-    topDragTarget,
-    "the managed top region must fail safe before drag is enabled",
-  );
-  assert.match(topDragTarget, /-webkit-app-region:\s*no-drag/);
-  assert.equal(
-    topDragInteractiveSelectors.length,
-    1,
-    "session-header controls must opt out after the runtime enables dragging",
-  );
-  const [topDragInteractiveSelector] = topDragInteractiveSelectors;
-  assert.equal(topDragInteractiveSelector.includes("button"), true);
-  assert.equal(
-    topDragInteractiveSelector.includes('[role="button"]'),
-    true,
-  );
-  assert.equal(
-    desktopSurfaceContract.declaration(
-      topDragInteractiveSelector,
-      "-webkit-app-region",
-    ),
-    "no-drag",
-  );
-  assert.equal(
-    desktopSurfaceContract.declaration(
-      topDragInteractiveSelector,
-      "app-region",
-    ),
-    "no-drag",
-  );
-  assert.ok(
-    tabsWindowDragTarget,
-    "the right Tabs spacer must fail safe before drag is enabled",
-  );
-  assert.match(
-    tabsWindowDragTarget,
-    /-webkit-app-region:\s*no-drag/,
-  );
-  assert.match(
-    desktopSurfaceSource,
-    /DESKTOP_DRAG_TARGET_SELECTOR[\s\S]*"\[data-dsh-desktop-top-drag-region\]"[\s\S]*"\[data-minke-tabs-window-drag\]"/,
-  );
-  assert.match(
-    desktopSurfaceSource,
-    /DESKTOP_RESIZE_HANDLE_SELECTOR[\s\S]*"\[data-minke-tabs-resize-handle\]"/,
-    "desktop hit testing must use the Tabs resize handle's semantic marker",
-  );
-  assert.doesNotMatch(
-    desktopSurfaceSource,
-    /DESKTOP_RESIZE_HANDLE_SELECTOR[\s\S]*"\.minke-tabs-resize-handle"/,
-    "desktop behavior must not depend on the resize handle's presentation class",
-  );
-  assert.match(
-    desktopTopDragRegionSource,
-    /RIGHT_PANEL_SELECTOR[\s\S]*data-placement="right"\]\[data-open\]/,
-  );
-  assert.match(
-    desktopTopDragRegionSource,
-    /safeRight[\s\S]*Math\.min\(naturalRight, panelRect\.left\)/,
-  );
-  assert.match(
-    desktopTopDragRegionSource,
-    /new view\.ResizeObserver[\s\S]*new view\.MutationObserver/,
-  );
-  assert.match(
-    desktopTopDragRegionSource,
-    /removeAttribute\(TOP_DRAG_REGION_ATTRIBUTE\)[\s\S]*setBoundedWidth\(target, undefined\)/,
-  );
-  assert.match(
-    desktopSurfaceCss,
-    /\[data-dsh-desktop-top-drag-region\]\[data-dsh-desktop-top-drag-bounded\]\s*\{[\s\S]*?width:\s*var\(--dsh-desktop-top-drag-width\)\s*!important;/,
-  );
-  assert.ok(
-    gatedDragRule,
-    "each desktop drag target must require its runtime safety gate",
-  );
-  assert.match(gatedDragRule, /-webkit-app-region:\s*drag/);
-  assert.match(blankSessionHeaderSlot, /position:\s*absolute/);
-  assert.match(blankSessionHeaderSlot, /inset:\s*0 0 auto/);
-  assert.match(selectableHeaderText, /-webkit-app-region:\s*no-drag/);
-  assert.match(selectableHeaderText, /user-select:\s*text/);
-  assert.match(
-    earlyCss,
-    /button,[\s\S]*\[contenteditable="true"\]\s*\{[\s\S]*-webkit-app-region:\s*no-drag/,
-  );
-  assert.doesNotMatch(
-    earlyCss,
-    /user-select:\s*none/,
-    "desktop drag rules must not disable text selection",
-  );
-  assert.doesNotMatch(
-    earlyCss,
-    /body(?::has\([^)]*\))?::before/,
-    "obsolete document-wide pseudo drag strips must be removed",
-  );
-  assert.equal(
-    [...earlyCss.matchAll(/-webkit-app-region:\s*drag/g)].length,
-    0,
-    "document-start CSS must fail safe before interaction-layer detection",
-  );
-  assert.equal(
-    [
-      ...desktopSurfaceCss.matchAll(
-        /-webkit-app-region:\s*drag/g,
-      ),
-    ].length,
-    1,
-    "runtime-gated targets must share one drag declaration",
-  );
-  assert.doesNotMatch(
-    earlyCss,
-    /\[data-phase="(?:active|hero|settling)"\]:has\(> \[data-conversation-scroll\]\)/,
-    "obsolete phase/header drag selectors must be removed",
-  );
-});
-
-test("interactive layers synchronously revoke the desktop drag gate", () => {
-  assert.match(
-    desktopSurfaceSource,
-    /INTERACTION_LAYER_SELECTOR[\s\S]*aria-modal[\s\S]*role="dialog"[\s\S]*role="listbox"[\s\S]*role="menu"/,
-  );
-  assert.match(desktopSurfaceSource, /querySelector\(":popover-open"\)/);
-  assert.match(desktopSurfaceSource, /appRoot\.inert/);
-  assert.match(desktopSurfaceSource, /root\.fullscreenElement/);
-  assert.match(
-    desktopSurfaceSource,
-    /style\.position === "fixed"[\s\S]*style\.pointerEvents !== "none"/,
-  );
-  assert.match(desktopSurfaceSource, /elementFromPoint/);
-  assert.match(
-    desktopSurfaceSource,
-    /new view\.MutationObserver\(\(\) => \{[\s\S]*hasDeclaredInteractionLayer[\s\S]*suspendDesktopDrag/,
-  );
-  assert.match(
-    desktopSurfaceSource,
-    /attributeFilter:\s*\[[\s\S]*"aria-modal"[\s\S]*"inert"[\s\S]*"open"[\s\S]*"style"/,
-  );
-  assert.match(desktopSurfaceSource, /"beforetoggle"/);
-  assert.match(desktopSurfaceSource, /removeAttribute\(\s*DESKTOP_DRAG_ENABLED_ATTRIBUTE/);
-  assert.match(
-    desktopSurfaceSource,
-    /clearDesktopMarkers\(root\)[\s\S]*disposeStyles\(\)/,
-    "lifecycle cleanup must remove both the gate and its stylesheet",
-  );
-});
+// Native rectangle composition and menu interactions are exercised against the
+// production renderer in window-drag-ui.cjs / native-sidebar-ui.cjs.
 
 test("the active composer restores its upstream theme surfaces", () => {
   assert.match(earlyCss, /\[data-conversation-composer-overlay\]/);

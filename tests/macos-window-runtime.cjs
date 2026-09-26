@@ -37,6 +37,7 @@ async function run() {
     join(projectRoot, 'resources', 'desktop-style-extension', 'early.css'),
     'utf8',
   );
+  const nativeCss = readFileSync(join(projectRoot, 'vendor/deepseek-harness/packages/client/web/src/base.css'), 'utf8');
   const desktopSurfaceBundle = buildSync({
     bundle: true,
     entryPoints: [
@@ -208,7 +209,9 @@ async function run() {
         height: 34px;
         background: var(--dsw-alias-button-info-fill);
       }
+      ${nativeCss}
       ${earlyCss}
+      .sessionTitle { -webkit-app-region: no-drag; user-select: text; }
     </style>
     <script>${desktopSurfaceBundle}</script>
     </head>
@@ -218,7 +221,7 @@ async function run() {
         <div class="sidebarColumn">
           <div data-slot="sidebar">
             <div class="sidebar">
-              <div class="logoRow">
+              <div class="logoRow" data-window-drag>
                 <button class="toggle" aria-label="Collapse sidebar">Toggle</button>
               </div>
               <button class="newSession" aria-label="New Session">New Session</button>
@@ -227,13 +230,14 @@ async function run() {
         </div>
         <div class="centerColumn" data-phase="active">
           <div data-slot="conversation.session.header">
-            <header class="sessionHeader">
+            <header class="sessionHeader" data-window-drag>
               <span class="sessionTitle">Session title</span>
               <button class="sessionAction" aria-label="Session action">
                 Action
               </button>
             </header>
           </div>
+          <div data-conversation-scroll style="height:1px;overflow:auto"></div>
           <div data-composer-card>
             <div data-input-scroll></div>
             <div class="composerRow">
@@ -255,7 +259,7 @@ async function run() {
         <div class="detailsHandle" data-side="rightbar"></div>
         <div
           class="tabsWindowDrag"
-          data-minke-tabs-window-drag
+          data-minke-tabs-window-drag data-window-drag
           aria-hidden="true"
         ></div>
       </div>
@@ -291,6 +295,31 @@ async function run() {
       ),
     "desktop structural markers",
   );
+  const redundantSurfaceWrites = await window.webContents.executeJavaScript(`
+    (async () => {
+      let writes = 0;
+      const observer = new MutationObserver(records => {
+        writes += records.filter(record =>
+          record.attributeName?.startsWith('data-dsh-desktop-') &&
+          record.oldValue === record.target.getAttribute(record.attributeName)
+        ).length;
+      });
+      observer.observe(document.documentElement, {
+        attributes: true, attributeOldValue: true, subtree: true,
+      });
+      document.body.classList.add('minke-surface-reconcile-test');
+      try {
+        await Promise.resolve();
+        for (let frame = 0; frame < 6; frame++) {
+          await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+      } finally {
+        observer.disconnect();
+        document.body.classList.remove('minke-surface-reconcile-test');
+      }
+      return writes;
+    })()
+  `);
   await waitFor(() => themeMessages.length >= 1, 'initial window theme');
   await window.webContents.executeJavaScript(`
     (() => {
@@ -342,368 +371,43 @@ async function run() {
   const surfaceKind = await window.webContents.executeJavaScript(
     'window.minkeDesktop.surface.kind',
   );
-  const dialogOpenState = await window.webContents.executeJavaScript(`
+  const platform = await window.webContents.executeJavaScript('document.documentElement.dataset.windowDragPlatform');
+
+  const streamingWork = await window.webContents.executeJavaScript(`
     (async () => {
-      const appRegion = (selector) =>
-        getComputedStyle(document.querySelector(selector))
-          .getPropertyValue('-webkit-app-region')
-          .trim();
-      const snapshot = () => ({
-        conversationHeader: appRegion(
-          '[data-slot="conversation.session.header"]',
-        ),
-        conversationHeaderWidth: Math.round(
-          document.querySelector(
-            '[data-slot="conversation.session.header"]',
-          ).getBoundingClientRect().width,
-        ),
-        sidebarTitlebar: appRegion(
-          '[data-dsh-desktop-titlebar-anchor]',
-        ),
-        tabsWindowDrag: appRegion(
-          '[data-minke-tabs-window-drag]',
-        ),
-      });
-      const beforeDialog = snapshot();
-      const overlay = document.createElement('div');
-      overlay.style.cssText =
-        'position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5)';
-      const dialog = document.createElement('section');
-      dialog.setAttribute('role', 'dialog');
-      dialog.setAttribute('aria-modal', 'true');
-      const action = document.createElement('button');
-      action.setAttribute('aria-label', 'Modal action');
-      action.textContent = 'Modal action';
-      const header = document.querySelector(
-        '[data-slot="conversation.session.header"]',
-      ).getBoundingClientRect();
-      action.style.cssText =
-        'position:fixed;left:' + (header.left + 16) + 'px;'
-          + 'top:' + (header.top + 16) + 'px;width:100px;height:32px';
-      globalThis.modalActionClicks = 0;
-      action.addEventListener('click', () => {
-        globalThis.modalActionClicks += 1;
-      });
-      dialog.append(action);
-      overlay.append(dialog);
-      document.body.append(overlay);
-      globalThis.dragSafetyOverlay = overlay;
-      await Promise.resolve();
-      const rect = action.getBoundingClientRect();
-      return {
-        beforeDialog,
-        duringDialog: snapshot(),
-        point: {
-          x: Math.round(rect.x + rect.width / 2),
-          y: Math.round(rect.y + rect.height / 2),
-        },
+      const content = document.createElement('div');
+      document.querySelector('[data-conversation-scroll]').append(content);
+      const header = document.querySelector('[data-slot="conversation.session.header"]');
+      const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+      // Let mount and transition settling finish before measuring streaming updates.
+      // Use elapsed time so high-refresh-rate displays get the same quiet period.
+      const settleUntil = performance.now() + 500;
+      do { await frame(); } while (performance.now() < settleUntil);
+      const originalQuery = document.querySelectorAll;
+      const originalRect = header.getBoundingClientRect;
+      let documentScans = 0;
+      let headerReads = 0;
+      document.querySelectorAll = function (...args) {
+        documentScans++;
+        return originalQuery.apply(this, args);
       };
+      header.getBoundingClientRect = function () {
+        headerReads++;
+        return originalRect.call(this);
+      };
+      try {
+        for (let index = 0; index < 12; index++) {
+          content.textContent = 'Streaming answer ' + index;
+          await frame();
+        }
+      } finally {
+        document.querySelectorAll = originalQuery;
+        header.getBoundingClientRect = originalRect;
+        content.remove();
+      }
+      return { documentScans, headerReads };
     })()
   `);
-  window.webContents.sendInputEvent({
-    type: 'mouseDown',
-    x: dialogOpenState.point.x,
-    y: dialogOpenState.point.y,
-    button: 'left',
-    clickCount: 1,
-  });
-  window.webContents.sendInputEvent({
-    type: 'mouseUp',
-    x: dialogOpenState.point.x,
-    y: dialogOpenState.point.y,
-    button: 'left',
-    clickCount: 1,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  const dialogClosedState = await window.webContents.executeJavaScript(`
-    (async () => {
-      const snapshot = () => {
-        const appRegion = (selector) =>
-          getComputedStyle(document.querySelector(selector))
-            .getPropertyValue('-webkit-app-region')
-            .trim();
-        return {
-          conversationHeader: appRegion(
-            '[data-slot="conversation.session.header"]',
-          ),
-          sidebarTitlebar: appRegion(
-            '[data-dsh-desktop-titlebar-anchor]',
-          ),
-          tabsWindowDrag: appRegion(
-            '[data-minke-tabs-window-drag]',
-          ),
-        };
-      };
-      const modalActionClicks = globalThis.modalActionClicks;
-      globalThis.dragSafetyOverlay.remove();
-      delete globalThis.dragSafetyOverlay;
-      await Promise.resolve();
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      return { afterDialog: snapshot(), modalActionClicks };
-    })()
-  `);
-  const additionalDragSafety = await window.webContents.executeJavaScript(`
-    (async () => {
-      const appRegion = (selector) =>
-        getComputedStyle(document.querySelector(selector))
-          .getPropertyValue('-webkit-app-region')
-          .trim();
-      const snapshot = () => ({
-        conversationHeader: appRegion(
-          '[data-slot="conversation.session.header"]',
-        ),
-        conversationHeaderWidth: Math.round(
-          document.querySelector(
-            '[data-slot="conversation.session.header"]',
-          ).getBoundingClientRect().width,
-        ),
-        sidebarTitlebar: appRegion(
-          '[data-dsh-desktop-titlebar-anchor]',
-        ),
-        tabsWindowDrag: appRegion(
-          '[data-minke-tabs-window-drag]',
-        ),
-      });
-      const nextFrame = () =>
-        new Promise((resolve) => requestAnimationFrame(resolve));
-
-      const fixedPortal = document.createElement('div');
-      fixedPortal.style.cssText =
-        'position:fixed;inset:0;z-index:900;background:transparent';
-      document.body.append(fixedPortal);
-      await Promise.resolve();
-      const duringFixedPortal = snapshot();
-      fixedPortal.remove();
-      await Promise.resolve();
-      await nextFrame();
-      const afterFixedPortal = snapshot();
-
-      const hiddenDialog = document.createElement('section');
-      hiddenDialog.setAttribute('role', 'dialog');
-      hiddenDialog.hidden = true;
-      document.body.append(hiddenDialog);
-      await Promise.resolve();
-      await nextFrame();
-      const whileDialogHidden = snapshot();
-      hiddenDialog.hidden = false;
-      await Promise.resolve();
-      const afterDialogShown = snapshot();
-      hiddenDialog.hidden = true;
-      await Promise.resolve();
-      await nextFrame();
-      const afterDialogHiddenAgain = snapshot();
-      hiddenDialog.remove();
-
-      const popover = document.createElement('div');
-      popover.setAttribute('popover', 'manual');
-      document.body.append(popover);
-      await Promise.resolve();
-      await nextFrame();
-      const beforePopover = snapshot();
-      popover.showPopover();
-      const duringPopover = snapshot();
-      popover.hidePopover();
-      await nextFrame();
-      const afterPopover = snapshot();
-      popover.remove();
-
-      const inertRoot = document.getElementById('root');
-      inertRoot.inert = true;
-      await Promise.resolve();
-      const duringInertRoot = snapshot();
-      inertRoot.inert = false;
-      await Promise.resolve();
-      await nextFrame();
-      const afterInertRoot = snapshot();
-
-      const deferredDragStyle = document.createElement('style');
-      deferredDragStyle.textContent = [
-        '#deferred-drag-toggle:not(:checked) + .deferredWindowDrag',
-        '{ display: none; }',
-        '.deferredWindowDrag {',
-        'position: fixed; top: 90px; left: 12px; z-index: 600;',
-        'width: 60px; height: 28px;',
-        '}',
-      ].join('');
-      const deferredDragToggle = document.createElement('input');
-      deferredDragToggle.id = 'deferred-drag-toggle';
-      deferredDragToggle.type = 'checkbox';
-      deferredDragToggle.hidden = true;
-      const deferredDragTarget = document.createElement('div');
-      deferredDragTarget.className = 'deferredWindowDrag';
-      deferredDragTarget.setAttribute(
-        'data-minke-tabs-window-drag',
-        '',
-      );
-      deferredDragTarget.setAttribute('aria-hidden', 'true');
-      inertRoot.append(
-        deferredDragStyle,
-        deferredDragToggle,
-        deferredDragTarget,
-      );
-      await Promise.resolve();
-      await nextFrame();
-      const beforeDeferredDragLayout = getComputedStyle(
-        deferredDragTarget,
-      ).getPropertyValue('-webkit-app-region').trim();
-      deferredDragToggle.checked = true;
-      await nextFrame();
-      await nextFrame();
-      const afterDeferredDragLayout = getComputedStyle(
-        deferredDragTarget,
-      ).getPropertyValue('-webkit-app-region').trim();
-      deferredDragStyle.remove();
-      deferredDragToggle.remove();
-      deferredDragTarget.remove();
-      await Promise.resolve();
-      await nextFrame();
-
-      const settlingDragTarget = document.createElement('div');
-      settlingDragTarget.style.cssText =
-        'position:fixed;top:126px;left:12px;z-index:600;'
-          + 'width:60px;height:28px';
-      settlingDragTarget.setAttribute(
-        'data-minke-tabs-window-drag',
-        '',
-      );
-      settlingDragTarget.setAttribute('aria-hidden', 'true');
-      const settlingDragOccluder = document.createElement('div');
-      settlingDragOccluder.style.cssText =
-        'position:fixed;top:126px;left:12px;z-index:601;'
-          + 'width:60px;height:28px';
-      inertRoot.append(settlingDragTarget, settlingDragOccluder);
-      const settlingAnimation = settlingDragOccluder.animate(
-        [
-          { visibility: 'visible', offset: 0 },
-          { visibility: 'visible', offset: 0.99 },
-          { visibility: 'hidden', offset: 1 },
-        ],
-        { duration: 120, fill: 'forwards' },
-      );
-      await Promise.resolve();
-      await nextFrame();
-      const beforeSettlingDragLayout = getComputedStyle(
-        settlingDragTarget,
-      ).getPropertyValue('-webkit-app-region').trim();
-      await settlingAnimation.finished;
-      await nextFrame();
-      await nextFrame();
-      const afterSettlingDragLayout = getComputedStyle(
-        settlingDragTarget,
-      ).getPropertyValue('-webkit-app-region').trim();
-      settlingDragTarget.remove();
-      settlingDragOccluder.remove();
-      await Promise.resolve();
-      await nextFrame();
-
-      const wideRightPanel = document.createElement('div');
-      wideRightPanel.className = 'minke-tabs-panel';
-      wideRightPanel.setAttribute('data-open', '');
-      wideRightPanel.setAttribute('data-placement', 'right');
-      wideRightPanel.style.cssText =
-        'position:fixed;inset:0 0 0 210px;z-index:2;pointer-events:auto;'
-          + '-webkit-app-region:no-drag;app-region:no-drag';
-      const wideRightPanelResizeHandle =
-        document.createElement('div');
-      wideRightPanelResizeHandle.className =
-        'minke-tabs-resize-handle';
-      wideRightPanelResizeHandle.setAttribute(
-        'data-minke-tabs-resize-handle',
-        '',
-      );
-      wideRightPanelResizeHandle.style.cssText =
-        'position:absolute;inset:0 auto 0 -5px;z-index:3;width:10px;'
-          + '-webkit-app-region:no-drag;app-region:no-drag';
-      const wideEmptyDrag = document.createElement('div');
-      wideEmptyDrag.className = 'wideEmptyDrag';
-      wideEmptyDrag.setAttribute(
-        'data-minke-tabs-window-drag',
-        '',
-      );
-      wideEmptyDrag.style.cssText =
-        'position:absolute;inset:40px 0 0 0';
-      wideRightPanel.append(
-        wideRightPanelResizeHandle,
-        wideEmptyDrag,
-      );
-      inertRoot.append(wideRightPanel);
-      await Promise.resolve();
-      await nextFrame();
-      await nextFrame();
-      const wideRightPanelRect =
-        wideRightPanel.getBoundingClientRect();
-      const conversationHeaderRect = document.querySelector(
-        '[data-slot="conversation.session.header"]',
-      ).getBoundingClientRect();
-      const duringWideRightPanel = {
-        ...snapshot(),
-        wideEmptyDrag: appRegion('.wideEmptyDrag'),
-        conversationHeaderRight: Math.round(
-          conversationHeaderRect.right,
-        ),
-        rightPanelLeft: Math.round(wideRightPanelRect.left),
-      };
-      wideRightPanel.style.left = '170px';
-      await nextFrame();
-      await nextFrame();
-      const resizedRightPanelRect =
-        wideRightPanel.getBoundingClientRect();
-      const resizedConversationHeaderRect = document.querySelector(
-        '[data-slot="conversation.session.header"]',
-      ).getBoundingClientRect();
-      const duringResizedRightPanel = {
-        ...snapshot(),
-        wideEmptyDrag: appRegion('.wideEmptyDrag'),
-        conversationHeaderRight: Math.round(
-          resizedConversationHeaderRect.right,
-        ),
-        rightPanelLeft: Math.round(resizedRightPanelRect.left),
-      };
-      wideRightPanel.remove();
-      await Promise.resolve();
-      await nextFrame();
-      const afterWideRightPanel = snapshot();
-
-      const occludingBanner = document.createElement('div');
-      occludingBanner.style.cssText =
-        'position:fixed;inset:0 0 auto;height:40px;z-index:500';
-      inertRoot.append(occludingBanner);
-      await Promise.resolve();
-      await nextFrame();
-      const duringOcclusion = snapshot();
-      occludingBanner.remove();
-      await Promise.resolve();
-      await nextFrame();
-      const afterOcclusion = snapshot();
-
-      return {
-        afterDialogHiddenAgain,
-        afterDialogShown,
-        afterFixedPortal,
-        afterInertRoot,
-        afterOcclusion,
-        afterPopover,
-        afterWideRightPanel,
-        afterDeferredDragLayout,
-        afterSettlingDragLayout,
-        beforePopover,
-        beforeDeferredDragLayout,
-        beforeSettlingDragLayout,
-        duringFixedPortal,
-        duringInertRoot,
-        duringOcclusion,
-        duringPopover,
-        duringResizedRightPanel,
-        duringWideRightPanel,
-        whileDialogHidden,
-      };
-    })()
-  `);
-  const dragSafety = {
-    ...dialogOpenState,
-    ...dialogClosedState,
-    ...additionalDragSafety,
-  };
 
   const before = await window.webContents.executeJavaScript(`
     (() => {
@@ -833,13 +537,8 @@ async function run() {
       globalThis.disposeDesktopSurface();
       return {
         conversationHeaderRegion: getComputedStyle(
-          document.querySelector(
-            '[data-slot="conversation.session.header"]',
-          ),
+          document.querySelector('.sessionHeader'),
         ).getPropertyValue('-webkit-app-region').trim(),
-        dragEnabled: document.querySelector(
-          '[data-dsh-desktop-drag-enabled]',
-        ) !== null,
         marker: document.querySelector(
           '[data-dsh-desktop-new-session]',
         ) !== null,
@@ -861,7 +560,7 @@ async function run() {
     detailsHandleMarker: before.detailsHandleMarker,
     detailsHandleMouseDowns: clicks.detailsHandle,
     disposedSurface,
-    dragSafety,
+    platform,
     initialThemeBeforeDomReady,
     initialThemeSource,
     malformedLocaleError,
@@ -880,6 +579,8 @@ async function run() {
     settlingBackgroundAlpha: alphaOf(before.settlingBackground),
     systemThemeSource,
     surfaceKind,
+    redundantSurfaceWrites,
+    streamingWork,
     themeMessages,
     toggleClicks: clicks.toggle,
     updatedSystemThemeSource,
@@ -890,6 +591,12 @@ async function run() {
   app.quit();
 
   const failures = [];
+  if (result.redundantSurfaceWrites !== 0) {
+    failures.push('desktop reconciliation rewrote unchanged markers: ' + result.redundantSurfaceWrites);
+  }
+  if (result.streamingWork.documentScans !== 0 || result.streamingWork.headerReads !== 0) {
+    failures.push('streaming text triggered document scans or titlebar geometry reads: ' + JSON.stringify(result.streamingWork));
+  }
   if (result.initialThemeBeforeDomReady !== true) {
     failures.push('initial theme did not reach the native window before DOM ready');
   }
@@ -964,119 +671,21 @@ async function run() {
   ) {
     failures.push('conversation header text is not safely selectable');
   }
-  if (
-    result.dragSafety.beforeDialog.conversationHeader !== 'drag' ||
-    result.dragSafety.beforeDialog.sidebarTitlebar !== 'drag' ||
-    result.dragSafety.beforeDialog.tabsWindowDrag !== 'drag'
-  ) {
-    failures.push('desktop drag regions were not enabled before the dialog');
-  }
-  if (
-    result.dragSafety.duringDialog.conversationHeader !== 'no-drag' ||
-    result.dragSafety.duringDialog.sidebarTitlebar !== 'no-drag' ||
-    result.dragSafety.duringDialog.tabsWindowDrag !== 'no-drag'
-  ) {
-    failures.push('dialog did not synchronously suspend desktop drag regions');
-  }
-  if (result.dragSafety.modalActionClicks !== 1) {
-    failures.push('dialog action was intercepted by a stale drag region');
-  }
-  if (
-    result.dragSafety.afterDialog.conversationHeader !== 'drag' ||
-    result.dragSafety.afterDialog.sidebarTitlebar !== 'drag' ||
-    result.dragSafety.afterDialog.tabsWindowDrag !== 'drag'
-  ) {
-    failures.push('desktop drag regions did not recover after the dialog closed');
-  }
-  if (
-    result.dragSafety.duringWideRightPanel.conversationHeader !== 'drag' ||
-    result.dragSafety.duringWideRightPanel.sidebarTitlebar !== 'drag' ||
-    result.dragSafety.duringWideRightPanel.tabsWindowDrag !== 'drag' ||
-    result.dragSafety.duringWideRightPanel.wideEmptyDrag !== 'drag' ||
-    result.dragSafety.duringWideRightPanel.conversationHeaderRight >
-      result.dragSafety.duringWideRightPanel.rightPanelLeft ||
-    result.dragSafety.duringWideRightPanel.conversationHeaderWidth >=
-      result.dragSafety.beforeDialog.conversationHeaderWidth
-  ) {
-    failures.push(
-      'top drag region did not shrink to the visible New Session boundary',
-    );
-  }
-  if (
-    result.dragSafety.duringResizedRightPanel.conversationHeader !==
-      'drag' ||
-    result.dragSafety.duringResizedRightPanel.wideEmptyDrag !== 'drag' ||
-    result.dragSafety.duringResizedRightPanel.conversationHeaderRight !==
-      result.dragSafety.duringResizedRightPanel.rightPanelLeft ||
-    result.dragSafety.duringResizedRightPanel.conversationHeaderWidth >=
-      result.dragSafety.duringWideRightPanel.conversationHeaderWidth
-  ) {
-    failures.push(
-      'top drag region did not track a live right panel resize',
-    );
-  }
-  if (
-    result.dragSafety.beforeDeferredDragLayout !== 'no-drag' ||
-    result.dragSafety.afterDeferredDragLayout !== 'drag'
-  ) {
-    failures.push(
-      'layout-only visibility change did not refresh its desktop drag region',
-    );
-  }
-  if (
-    result.dragSafety.beforeSettlingDragLayout !== 'no-drag' ||
-    result.dragSafety.afterSettlingDragLayout !== 'drag'
-  ) {
-    failures.push(
-      'transient layout occlusion left a desktop drag region stale',
-    );
-  }
-  for (const [label, state] of Object.entries({
-    'fixed portal': result.dragSafety.duringFixedPortal,
-    'dialog attribute activation': result.dragSafety.afterDialogShown,
-    'inert application root': result.dragSafety.duringInertRoot,
-    'fixed occlusion': result.dragSafety.duringOcclusion,
-    'native popover': result.dragSafety.duringPopover,
-  })) {
-    if (
-      state.conversationHeader !== 'no-drag' ||
-      state.sidebarTitlebar !== 'no-drag' ||
-      state.tabsWindowDrag !== 'no-drag'
-    ) {
-      failures.push(`${label} did not suspend desktop drag regions`);
-    }
-  }
-  for (const [label, state] of Object.entries({
-    'closed native popover': result.dragSafety.beforePopover,
-    'fixed portal removal': result.dragSafety.afterFixedPortal,
-    'hidden dialog': result.dragSafety.whileDialogHidden,
-    'dialog re-hide': result.dragSafety.afterDialogHiddenAgain,
-    'inert root release': result.dragSafety.afterInertRoot,
-    'fixed occlusion removal': result.dragSafety.afterOcclusion,
-    'native popover close': result.dragSafety.afterPopover,
-    'wide right panel removal': result.dragSafety.afterWideRightPanel,
-  })) {
-    if (
-      state.conversationHeader !== 'drag' ||
-      state.sidebarTitlebar !== 'drag' ||
-      state.tabsWindowDrag !== 'drag'
-    ) {
-      failures.push(`${label} did not leave desktop drag regions usable`);
-    }
+  if (result.platform !== 'darwin') {
+    failures.push('preload did not enable DSH native macOS titlebar behavior');
   }
   if (result.surfaceKind !== 'macos') {
     failures.push('preload did not advertise the native macOS surface');
   }
   if (
-    result.disposedSurface.dragEnabled ||
     result.disposedSurface.marker ||
     result.disposedSurface.resizeHandleMarker ||
     result.disposedSurface.style
   ) {
     failures.push('desktop surface lifecycle did not release markers and styles');
   }
-  if (result.disposedSurface.conversationHeaderRegion !== 'no-drag') {
-    failures.push('desktop surface disposal did not restore the fail-safe no-drag state');
+  if (result.disposedSurface.conversationHeaderRegion !== 'drag') {
+    failures.push('Minke surface disposal interfered with DSH native window drag');
   }
   if (failures.length > 0) throw new Error(failures.join('; '));
 }

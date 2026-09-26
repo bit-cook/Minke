@@ -34,6 +34,7 @@ export function TabsEmptyState({
         <div
           className="minke-tabs-empty__window-drag"
           data-minke-tabs-window-drag=""
+          data-window-drag=""
           aria-hidden="true"
         />
       )}

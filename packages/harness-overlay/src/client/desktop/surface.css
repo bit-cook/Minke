@@ -4,33 +4,29 @@
   background-color: transparent !important;
 }
 
-/* Fullscreen overlays the other columns, so retain DSH's opaque base and keep
-   the first strip clear of the native window controls. Other panes stay flush. */
-[data-sidebar-right-panel="fullscreen"]
-  [data-dsh-desktop-window-controls-inset] {
-  padding-left: 64px;
-}
-
 [data-dsh-desktop-sidebar-fade] {
   display: none !important;
 }
 
+[data-sidebar-right-panel="fullscreen"] [data-dsh-desktop-window-controls-inset] {
+  padding-left: 64px;
+}
+
 [data-dsh-desktop-titlebar-anchor] {
-  height: 28px !important;
-  margin-top: -4px !important;
-  padding-left: 56px !important;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  height: 32px !important;
+  margin: -6px -12px 4px !important;
+  padding-left: 68px !important;
+  padding-right: 12px !important;
 }
 
-[data-dsh-desktop-top-drag-region] {
-  box-sizing: border-box;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+[data-dsh-desktop-titlebar-anchor] > button:first-child:not(:last-child) {
+  display: none !important;
 }
 
-[data-dsh-desktop-top-drag-region][data-dsh-desktop-top-drag-bounded] {
-  width: var(--dsh-desktop-top-drag-width) !important;
+[data-sidebar-collapsed] [data-dsh-desktop-titlebar-anchor] {
+  height: 86px !important;
+  margin: -18px -10px 12px !important;
+  padding: 50px 10px 0 !important;
 }
 
 [data-dsh-desktop-resize-handle] {
@@ -38,67 +34,17 @@
   app-region: no-drag;
 }
 
-[data-sidebar-right-panel] [data-dockkit-strip],
-[data-minke-tabs-window-drag] {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+/* Only the actual tabs and buttons subtract from the native strip. The flex
+   containers also hold empty space, which remains part of the titlebar. */
+html[data-window-drag-platform="darwin"] [data-sidebar-right-panel]
+  :is([data-dockkit-strip-tabs], [data-dockkit-strip-chrome]) {
+  -webkit-app-region: none;
+  app-region: none;
 }
 
-[data-sidebar-right-panel] [data-dockkit-strip][data-dsh-desktop-drag-enabled],
-[data-dsh-desktop-titlebar-anchor][data-dsh-desktop-drag-enabled],
-[data-dsh-desktop-top-drag-region][data-dsh-desktop-drag-enabled],
-[data-minke-tabs-window-drag][data-dsh-desktop-drag-enabled] {
-  -webkit-app-region: drag;
-  app-region: drag;
-}
-
-/* The native strip owns blank window chrome. Its chips retain DockKit's tab
-   dragging, and its controls retain clicks. Floating panels keep their own grip. */
-[data-sidebar-right-panel] [data-dockkit-strip]
-  :is([data-dockkit-strip-tabs], [data-dockkit-tab], [data-dockkit-strip-chrome], button) {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-[data-dsh-desktop-top-drag-region]
-  :is(
-    a[href],
-    button,
-    input,
-    select,
-    textarea,
-    summary,
-    [contenteditable="true"],
-    [role="button"],
-    [role="checkbox"],
-    [role="combobox"],
-    [role="link"],
-    [role="menuitem"],
-    [role="menuitemcheckbox"],
-    [role="menuitemradio"],
-    [role="option"],
-    [role="radio"],
-    [role="slider"],
-    [role="spinbutton"],
-    [role="switch"],
-    [role="tab"],
-    [tabindex]:not([tabindex="-1"])
-  ) {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-[data-dsh-desktop-titlebar-anchor]
-  > button:first-child:not(:last-child) {
-  display: none !important;
-}
-
-[data-dsh-desktop-sidebar-toggle]
-  > svg:first-child:not(:last-child) {
-  display: none !important;
-}
-
-[data-dsh-desktop-sidebar-toggle] > svg:last-child {
+/* DSH's panel glyph is the direct SVG; its badge slot follows it even when
+   empty, so child position cannot identify the glyph. Keep it visible at rest. */
+[data-dsh-desktop-sidebar-toggle] > svg {
   display: inline !important;
 }
 
@@ -112,12 +58,6 @@
   animation: none !important;
   transform: none !important;
   transition: none !important;
-}
-
-[data-sidebar-collapsed] [data-dsh-desktop-titlebar-anchor] {
-  height: 36px !important;
-  margin-top: 12px !important;
-  padding-left: 0 !important;
 }
 
 [data-dsh-desktop-new-session] {

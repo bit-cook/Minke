@@ -258,6 +258,9 @@ function observeWindowTheme(): void {
   }
 
   observer?.disconnect();
+  // Opt into the shared drag watcher without claiming DSH Desktop's separate
+  // native keyboard bridge. Other platforms keep their normal framed windows.
+  if (process.platform === "darwin") document.documentElement.dataset.windowDragPlatform = "darwin";
   publishResolvedWindowTheme();
   observer?.observe(document.documentElement, {
     attributes: true,

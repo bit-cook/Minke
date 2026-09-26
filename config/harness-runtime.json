@@ -25,7 +25,8 @@
     "patches/deepseek-harness/sidebar-add-menu.patch",
     "patches/deepseek-harness/shared-terminal-view.patch",
     "patches/deepseek-harness/embedded-document-preview.patch",
-    "patches/deepseek-harness/session-export-feedback.patch"
+    "patches/deepseek-harness/session-export-feedback.patch",
+    "patches/deepseek-harness/window-drag-capability.patch"
   ],
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

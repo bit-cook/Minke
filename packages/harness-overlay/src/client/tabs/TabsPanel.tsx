@@ -699,6 +699,7 @@ export function TabsPanel({
             <div
               className="minke-tabs-tabbar__window-drag"
               data-minke-tabs-window-drag=""
+              data-window-drag=""
               aria-hidden="true"
             />
           )}
