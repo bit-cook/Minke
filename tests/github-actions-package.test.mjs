@@ -53,6 +53,24 @@ function withWindowsLineEndings(source) {
   return source.replace(/\r?\n/gu, "\r\n");
 }
 
+test("CI validates and reuses its staged runtime before making installers", async () => {
+  const workflow = load(await readFile(workflowUrl, "utf8"));
+  const steps = workflow.jobs.package.steps;
+  const stageIndex = steps.findIndex(step => step.run === "pnpm harness:stage");
+  const testsIndex = steps.findIndex(step => step.run === "pnpm test:desktop");
+  const makeIndex = steps.findIndex(step => step.name === "Make distributables");
+  assert.ok(stageIndex >= 0 && testsIndex > stageIndex && makeIndex > testsIndex);
+  assert.deepEqual(steps[makeIndex].run.split(" && "), [
+    "pnpm harness:stage:ensure",
+    "pnpm forge:make",
+  ]);
+  const manifest = JSON.parse(await readFile(packageManifestUrl, "utf8"));
+  assert.equal(
+    manifest.scripts["harness:stage:ensure"],
+    "node scripts/harness/stage.mjs --skip-install --skip-build --refresh-if-stale",
+  );
+});
+
 test("Linux packaging prepares the pinned DSH sandbox before runtime checks", async () => {
   const workflow = load(await readFile(workflowUrl, "utf8"));
   const steps = workflow.jobs.package.steps;
@@ -155,9 +173,9 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   );
   assert.match(
     source,
-    /name:\s*Make distributables\s*\n\s*env:\s*\n\s*TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*TMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*SQUIRREL_TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*run:\s*pnpm make/u,
+    /name:\s*Make distributables\s*\n\s*env:\s*\n\s*TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*TMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*SQUIRREL_TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*run:\s*pnpm harness:stage:ensure && pnpm forge:make/u,
   );
-  const makeIndex = source.indexOf("run: pnpm make");
+  const makeIndex = source.indexOf("run: pnpm harness:stage:ensure && pnpm forge:make");
   const electronRuntimeStepIndex = source.indexOf(
     "- name: Test Electron runtimes",
   );
@@ -264,7 +282,7 @@ test("GitHub Actions packages each supported desktop platform", async () => {
 test("sidebar UI regression runs on every package target before uploading artifacts", async () => {
   const workflow = load(await readFile(workflowUrl, "utf8"));
   const steps = workflow.jobs.package.steps;
-  const makeIndex = steps.findIndex(step => step.run === "pnpm make");
+  const makeIndex = steps.findIndex(step => step.run === "pnpm harness:stage:ensure && pnpm forge:make");
   const uploadIndex = steps.findIndex(step => step.name === "Upload distributables");
   const command = "pnpm test:desktop:sidebar:prepared";
   const sidebarSteps = steps.filter(step => step.run?.includes(command));

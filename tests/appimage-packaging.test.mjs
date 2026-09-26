@@ -28,11 +28,11 @@ test("Linux job builds the AppImage after the distributables", async () => {
     /name:\s*Build AppImage from deb\s*\n\s*if:\s*runner\.os == 'Linux'\s*\n\s*run:\s*node scripts\/forge\/appimage\.mjs/u;
   assert.match(source, appImageStep);
 
-  const makeIndex = source.indexOf("run: pnpm make");
+  const makeIndex = source.indexOf("run: pnpm harness:stage:ensure && pnpm forge:make");
   const appImageIndex = source.indexOf("Build AppImage from deb");
   const uploadIndex = source.indexOf("Upload distributables");
   assert.notEqual(makeIndex, -1);
-  assert.ok(appImageIndex > makeIndex, "AppImage step must run after pnpm make");
+  assert.ok(appImageIndex > makeIndex, "AppImage step must run after the Forge make step");
   assert.ok(uploadIndex > appImageIndex, "AppImage step must run before upload");
 });
 

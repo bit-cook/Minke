@@ -116,7 +116,7 @@ jobs:
           TEMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
           TMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
           SQUIRREL_TEMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
-        run: pnpm make
+        run: pnpm harness:stage:ensure && pnpm forge:make
 
       - name: Test packaged runtime
         run: pnpm harness:smoke:packaged
