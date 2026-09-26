@@ -423,6 +423,7 @@ class FakeGuest extends EventEmitter {
   debugger = new FakeDebugger();
   destroyed = false;
   closed = false;
+  loading = false;
   url = "about:blank";
   windowOpenHandler;
   navigationCalls = [];
@@ -445,6 +446,10 @@ class FakeGuest extends EventEmitter {
 
   getURL() {
     return this.url;
+  }
+
+  isLoadingMainFrame() {
+    return this.loading;
   }
 
   isDestroyed() {
@@ -758,6 +763,48 @@ test("runtime admits only its exact temporary blank partition", async () => {
   assert.equal(lateGuest.closed, true);
   target.binding.dispose();
   target.runtime.dispose();
+});
+
+test("runtime waits for the initial blank document before agent navigation", async (t) => {
+  const target = runtimeFixture();
+  const opened = target.runtime.handleProcessRequest(
+    createAgentBrowserRequest(1, "conversation-1", "open", {
+      url: "https://example.com/start",
+    }),
+    new AbortController().signal,
+  );
+  t.after(async () => {
+    target.runtime.dispose();
+    await opened.catch(() => {});
+  });
+  const projection = target.runtime.projections()[0];
+  target.runtime.secureWebview({}, {
+    partition: projection.partition,
+    src: "about:blank",
+  });
+  const guest = new FakeGuest(
+    target.sessions.get(projection.partition), target.embedder,
+  );
+  guest.url = "";
+  guest.loading = true;
+  target.runtime.attachGuest(target.embedder, guest);
+  await settleAsyncWork();
+  assert.deepEqual(guest.debugger.commands, [],
+    "an uncommitted guest must not start agent navigation");
+
+  guest.url = "about:blank";
+  guest.emit("did-navigate", {}, guest.url);
+  await settleAsyncWork();
+  assert.deepEqual(guest.debugger.commands, [],
+    "the initial document must finish loading before activating CDP");
+
+  guest.loading = false;
+  guest.emit("did-stop-loading");
+  assert.equal((await opened).url, "https://example.com/start");
+  assert.deepEqual(
+    guest.debugger.commands.filter(({ method }) => method === "Page.navigate"),
+    [{ method: "Page.navigate", params: { url: "https://example.com/start" } }],
+  );
 });
 
 test("CDP refs are generation-scoped and mutation ambiguity is explicit", async () => {

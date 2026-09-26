@@ -320,6 +320,7 @@ async function run() {
     },
   );
   let agentGuest;
+  let initialNavigation;
   window.webContents.on(
     'did-attach-webview',
     (_event, guest) => {
@@ -330,6 +331,13 @@ async function run() {
         guest.close({ waitForBeforeUnload: false });
         return;
       }
+      const sendCommand = guest.debugger.sendCommand.bind(guest.debugger);
+      guest.debugger.sendCommand = (...args) => {
+        if (args[0] === 'Page.navigate' && initialNavigation === undefined) {
+          initialNavigation = { url: guest.getURL(), loading: guest.isLoadingMainFrame() };
+        }
+        return sendCommand(...args);
+      };
       agentGuest = guest;
     },
   );
@@ -399,6 +407,8 @@ async function run() {
       text: 'Ready',
       timeoutMs: 5_000,
     });
+    assert.deepEqual(initialNavigation, { url: 'about:blank', loading: false },
+      'agent navigation must inherit a completed native blank-page navigation');
     assert.ok(fixture.userAgents.length > 0);
     assert.equal(initialUserAgent, expectedUserAgent, 'the initial guest load must receive the configured identity');
     assert.equal(fixture.userAgents[0], expectedUserAgent);

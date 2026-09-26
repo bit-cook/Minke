@@ -2079,6 +2079,14 @@ export class AgentBrowserRuntime {
     state: AgentBrowserSessionState,
     guest: WebContents,
   ): Promise<void> {
+    // CDP navigation inherits the last committed entry's UA-override flag.
+    // Wait for Electron's native blank load to finish before taking over;
+    // setting the WebContents UA alone does not mark an uncommitted entry.
+    if (
+      state.closing || state.status === "crashed" ||
+      state.cdp !== undefined || guest.isDestroyed() ||
+      guest.isLoadingMainFrame() || guest.getURL() !== INITIAL_GUEST_URL
+    ) return;
     const cdp = new AgentBrowserCdp(guest.debugger, {
       commandTimeoutMs: this.#cdpTimeoutMs,
       onGenerationChange: (generation, reason) => {
@@ -2292,10 +2300,9 @@ export class AgentBrowserRuntime {
         state.status =
           state.owner === "human" ? "paused" : "ready";
         this.#publish();
-        if (
-          state.owner === "agent" &&
-          state.cdp !== undefined
-        ) {
+        if (state.cdp === undefined) {
+          void this.#activateGuest(state, guest);
+        } else if (state.owner === "agent") {
           void this.#publishCenteredCursor(state, state.cdp);
         }
       }
