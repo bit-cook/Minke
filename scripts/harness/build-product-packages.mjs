@@ -311,6 +311,12 @@ await Promise.all([
     platform: "browser",
     target: "chrome120",
     tsconfig: tsconfigPath,
+    // Product bundles precede the Harness build. This linked package exposes
+    // source entries so fresh checkouts need no generated protocol lib/.
+    alias: {
+      "@deepseek-ai/dsh-typert-protocol":
+        "@deepseek-ai/dsh-typert-protocol/src/index.ts",
+    },
     external: ["react", "react/jsx-runtime"],
     loader: {
       ".css": "text",

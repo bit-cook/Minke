@@ -36,6 +36,7 @@ const taskFiles = Object.freeze({
     "minke-config.test.mjs",
     "navigation-policy.test.mjs",
     "package-artifact.test.mjs",
+    "product-clean-build.test.mjs",
     "product-source-resolution.test.mjs",
     "product-version.test.mjs",
     "sys-native-module.test.mjs",
