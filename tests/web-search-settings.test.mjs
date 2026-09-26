@@ -161,7 +161,7 @@ test("web search runtime exposes unavailable and failed-write states", async () 
   runtime.dispose();
 });
 
-test("web search fallback renders native-tool routing and restart boundary", async () => {
+test("independent web search settings describe explicit calls and restart boundary", async () => {
   const runtime = new WebSearchSettingsRuntime({
     available: true,
     async read() {
@@ -179,11 +179,11 @@ test("web search fallback renders native-tool routing and restart boundary", asy
   );
 
   assert.equal(
-    html.includes("搜索失败时尝试备用来源"),
+    html.includes("启用 Minke 网页搜索"),
     true,
   );
-  assert.equal(html.includes("web_search 失败"), true);
-  assert.equal(html.includes("web_fetch 失败"), true);
+  assert.equal(html.includes("可显式调用的 minke_web_search"), true);
+  assert.equal(html.includes("原生工具结果保持不变"), true);
   assert.equal(html.includes("重启 Minke 后生效"), true);
   assert.equal(
     html.includes("data-minke-web-search-settings"),
@@ -210,10 +210,10 @@ test("web search fallback copy is complete in both locales", () => {
   );
   assert.equal(
     preferencesEn["preferences.webSearch.fallback.label"],
-    "Try alternate sources when search fails",
+    "Enable Minke web search",
   );
   assert.match(
     preferencesEn["preferences.webSearch.fallback.help"],
-    /native web_search[\s\S]*web_fetch/u,
+    /explicitly callable minke_web_search[\s\S]*Native tool results remain unchanged/u,
   );
 });

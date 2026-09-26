@@ -53,11 +53,11 @@ export const preferencesZh = {
     "行高必须在 {min} 到 {max} 之间。",
   "preferences.webSearch.title": "网页搜索",
   "preferences.webSearch.description":
-    "设置 Minke 在原生网页工具失败时的后备行为。",
+    "设置独立的 Minke 网页搜索工具。",
   "preferences.webSearch.fallback.label":
-    "搜索失败时尝试备用来源",
+    "启用 Minke 网页搜索",
   "preferences.webSearch.fallback.help":
-    "原生 web_search 失败时使用相同查询重试；web_fetch 失败时搜索替代来源并保留原错误。重启 Minke 后生效。",
+    "提供可显式调用的 minke_web_search 工具，使用免凭据的搜索来源。原生工具结果保持不变。重启 Minke 后生效。",
   "preferences.webSearch.error.unavailable":
     "当前环境无法保存网页搜索设置。",
   "preferences.webSearch.error.read":
@@ -142,11 +142,11 @@ export const preferencesEn: Record<
     "Line height must be between {min} and {max}.",
   "preferences.webSearch.title": "Web search",
   "preferences.webSearch.description":
-    "Choose what Minke does when native web tools cannot complete.",
+    "Configure the independent Minke web search tool.",
   "preferences.webSearch.fallback.label":
-    "Try alternate sources when search fails",
+    "Enable Minke web search",
   "preferences.webSearch.fallback.help":
-    "Retry the same query when native web_search fails. If web_fetch fails, search for alternate sources and preserve the original error. Restart Minke to apply changes.",
+    "Offer the explicitly callable minke_web_search tool with a credential-free search source. Native tool results remain unchanged. Restart Minke to apply changes.",
   "preferences.webSearch.error.unavailable":
     "Web search settings cannot be saved in this environment.",
   "preferences.webSearch.error.read":

@@ -209,6 +209,11 @@ test(
       assert.equal(definitions.get("web_search").native, true);
       assert.equal(definitions.get("web_fetch").native, true);
       assert.equal(
+        listeners.has("tools/execute"),
+        false,
+        "Minke must leave native tool success, failure and cancellation untouched",
+      );
+      assert.equal(
         Object.hasOwn(ctx, "web"),
         false,
         "the Minke plugin must not depend on or mutate ctx.web",
@@ -219,14 +224,8 @@ test(
               scope: { ctx: { preset: "standard" } },
             })
           : sections[0]?.text ?? "";
-      assert.match(
-        routingGuidance,
-        /automatically retries failed native web_search[\s\S]*minke_web_search/u,
-      );
-      assert.match(
-        routingGuidance,
-        /failed web_fetch remains an error[\s\S]*alternatives/u,
-      );
+      assert.match(routingGuidance, /explicitly call minke_web_search/u);
+      assert.doesNotMatch(routingGuidance, /automatically retries/u);
       assert.equal(
         sections[0].text({
           scope: { ctx: { preset: "minimal" } },
@@ -273,195 +272,6 @@ test(
           result,
         )[0].text,
         /https:\/\/example\.test\/alpha/u,
-      );
-
-      const nativeSearchFailure = {
-        isError: true,
-        error: {
-          message:
-            'DeepSeek API error (HTTP 503)\n\nThe web search request used endpoint "https://search.example/v1/messages".',
-          info: {
-            name: "WebError",
-            code: "WEB_PROVIDER_ERROR",
-          },
-          // Unknown/internal fields must never be serialized into fallback
-          // output. Only the ToolFailure contract is safe to project.
-          details: { apiKey: "must-not-leak" },
-        },
-        content: [
-          {
-            type: "text",
-            text:
-              'Error: DeepSeek API error (HTTP 503)\n\nThe web search request used endpoint "https://search.example/v1/messages".',
-          },
-          {
-            type: "text",
-            text:
-              "Search endpoint configuration is separate from chat.",
-          },
-          {
-            type: "text",
-            text: [
-              "Diagnostic mirror: https://alice:must-not-leak@search.example/v1/messages?api_key=must-not-leak&mode=web",
-              "Authorization: Bearer must-not-leak",
-              "token=must-not-leak",
-            ].join("\n"),
-          },
-        ],
-        debug: { authorization: "Bearer must-not-leak" },
-      };
-      const routedSearch = await listeners.get("tools/execute")(
-        {
-          name: "web_search",
-          arguments: { queries: ["native failure"] },
-          signal: new AbortController().signal,
-        },
-        async () => nativeSearchFailure,
-      );
-      assert.equal(routedSearch.isError, false);
-      assert.match(
-        routedSearch.value.content,
-        /automatic minke_web_search fallback/u,
-      );
-      assert.match(
-        routedSearch.value.content,
-        /WebError[\s\S]*WEB_PROVIDER_ERROR/u,
-      );
-      assert.match(
-        routedSearch.value.content,
-        /The web search request used endpoint "https:\/\/search\.example\/v1\/messages"/u,
-      );
-      assert.match(
-        routedSearch.value.content,
-        /Search endpoint configuration is separate from chat/u,
-      );
-      assert.match(
-        routedSearch.value.content,
-        /https:\/\/search\.example\/v1\/messages\?api_key=REDACTED&mode=web/u,
-      );
-      assert.match(
-        routedSearch.value.content,
-        /Authorization: REDACTED/u,
-      );
-      assert.match(
-        routedSearch.value.content,
-        /token=REDACTED/u,
-      );
-      assert.doesNotMatch(
-        routedSearch.value.content,
-        /must-not-leak|alice:|apiKey/iu,
-      );
-      assert.deepEqual(
-        routedSearch.value.sources.map(({ url }) => url),
-        [
-          "https://example.test/native%20failure",
-          "https://example.test/shared",
-        ],
-      );
-
-      const nativeFetchFailure = {
-        isError: true,
-        error: {
-          message: "upstream returned HTTP 503",
-          info: {
-            name: "WebError",
-            code: "WEB_PROVIDER_ERROR",
-          },
-        },
-        content: [
-          {
-            type: "text",
-            text: "Error: upstream returned HTTP 503",
-          },
-          {
-            type: "text",
-            text: "Effective fetch endpoint: https://failed.example/page",
-          },
-        ],
-      };
-      const routedFetch = await listeners.get("tools/execute")(
-        {
-          name: "web_fetch",
-          arguments: { url: "https://failed.example/page" },
-          signal: new AbortController().signal,
-        },
-        async () => nativeFetchFailure,
-      );
-      assert.equal(
-        routedFetch.isError,
-        true,
-        "search alternatives must not masquerade as fetched content",
-      );
-      assert.equal(routedFetch.error, nativeFetchFailure.error);
-      assert.deepEqual(
-        routedFetch.content.slice(0, -1),
-        nativeFetchFailure.content,
-      );
-      assert.equal(
-        routedFetch.content[0],
-        nativeFetchFailure.content[0],
-      );
-      assert.match(
-        routedFetch.content.at(-1).text,
-        /original URL was not fetched/u,
-      );
-      assert.match(
-        routedFetch.content.at(-1).text,
-        /minke_web_search fallback found search alternatives/u,
-      );
-      assert.match(
-        routedFetch.content.at(-1).text,
-        /https:\/\/example\.test\/https%3A%2F%2Ffailed\.example%2Fpage/u,
-      );
-
-      const cancelledFailure = {
-        ...nativeSearchFailure,
-        error: {
-          message: "aborted",
-          info: { code: "ABORTED" },
-        },
-      };
-      assert.equal(
-        await listeners.get("tools/execute")(
-          {
-            name: "web_search",
-            arguments: { queries: ["must not run"] },
-            signal: new AbortController().signal,
-          },
-          async () => cancelledFailure,
-        ),
-        cancelledFailure,
-      );
-
-      const providerCancelledFailure = {
-        ...nativeSearchFailure,
-        error: {
-          message: "DeepSeek search aborted",
-          info: {
-            name: "WebError",
-            code: "WEB_ABORTED",
-          },
-        },
-        content: [{
-          type: "text",
-          text: "Error: DeepSeek search aborted",
-        }],
-      };
-      const requestCountBeforeProviderCancellation = requests.length;
-      assert.equal(
-        await listeners.get("tools/execute")(
-          {
-            name: "web_search",
-            arguments: { queries: ["must also not run"] },
-            signal: new AbortController().signal,
-          },
-          async () => providerCancelledFailure,
-        ),
-        providerCancelledFailure,
-      );
-      assert.equal(
-        requests.length,
-        requestCountBeforeProviderCancellation,
       );
 
       const minimalAgent = {
