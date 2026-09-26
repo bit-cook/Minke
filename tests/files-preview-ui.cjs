@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { realpath, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { nativeTheme } = require('electron');
+const { fillsFullscreenViewport } = require('./support/sidebar-geometry.cjs');
 
 /** Runs against the production renderer and DSH document slots, with real local files. */
 async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace, click, pressKey, openedFilePaths }) {
@@ -85,7 +86,7 @@ async function verifyFilesPreviewUI({ window, rendererValue, waitFor, workspace,
   await waitFor(() => rendererValue(window, `() => document.querySelector('${host} [data-document-markdown] h1')?.textContent === 'Unsaved preview'`), 'preview renders current unsaved draft');
   process.stdout.write('[files-preview-ui] rendered Markdown and unsaved draft passed\n');
   await click('[data-sidebar-right-mode="fullscreen"]');
-  await waitFor(() => rendererValue(window, `() => Math.abs(document.querySelector('${host}').getBoundingClientRect().width - innerWidth) < 1`), 'fullscreen host geometry');
+  await waitFor(() => rendererValue(window, `() => (${fillsFullscreenViewport})(${JSON.stringify(host)})`), 'fullscreen host geometry');
   await resizePreview(520);
   await waitFor(() => rendererValue(window, `() => document.querySelector('${host} button[aria-label="Preview"]') !== null`), 'wide preview controls');
   await capture('wide-markdown');

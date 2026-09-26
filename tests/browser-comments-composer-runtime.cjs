@@ -66,6 +66,12 @@ async function verifyBrowserCommentDraft({ window, guest, model, rendererValue, 
   await rendererValue(window, `() => {
     const image = document.querySelector('[data-composer-card] img[alt="minke-browser-comments.png"]');
     image.closest('button').parentElement.querySelector('button[aria-label]').click();
+    return true;
+  }`);
+  await waitFor(() => rendererValue(window, `() =>
+    document.querySelector('[data-composer-card] img[alt="minke-browser-comments.png"]') === null
+  `), 'removed annotation image');
+  await rendererValue(window, `() => {
     const input = document.querySelector('[data-composer-input]');
     input.focus();
     const range = document.createRange();
@@ -74,8 +80,9 @@ async function verifyBrowserCommentDraft({ window, guest, model, rendererValue, 
     window.getSelection().addRange(range);
     return true;
   }`);
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' });
-  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
+  // Use the awaited editing command, as promptThroughComposer does, instead
+  // of racing a raw Backspace event with Lexical's selection reconciliation.
+  await window.webContents.insertText('');
   await waitFor(() => rendererValue(window, `() =>
     document.querySelector('[data-composer-input]').textContent === '' &&
     document.querySelector('[data-composer-card] img[alt="minke-browser-comments.png"]') === null

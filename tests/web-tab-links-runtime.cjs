@@ -12,6 +12,10 @@ const {
   ipcMain,
 } = require('electron');
 const { buildSync } = require('esbuild');
+const { closeServer } = require('./support/http-server.cjs');
+
+// Let the run promise report failures after its last window is destroyed.
+app.on('window-all-closed', () => {});
 
 const projectRoot = join(__dirname, '..');
 
@@ -91,8 +95,7 @@ async function startFixtureServer(localFileUrl) {
   assert.equal(typeof address, 'object');
   const origin = `http://127.0.0.1:${String(address.port)}`;
   return {
-    close: () =>
-      new Promise((resolve) => server.close(resolve)),
+    close: () => closeServer(server),
     launcherUrl: `${origin}/launcher`,
     programmaticUrl: `${origin}/programmatic`,
     sameFrameUrl: `${origin}/same-frame`,
@@ -289,6 +292,9 @@ async function run() {
             style="display:flex;width:800px;height:600px"
           ></webview>`),
     );
+    // CDP pointer injection needs a visible, laid-out guest on CI hosts.
+    window.show();
+    window.focus();
     const guest = await guestPromise;
     await waitForLoad(guest);
     await waitFor(
@@ -457,5 +463,5 @@ run()
     process.exitCode = 1;
   })
   .finally(() => {
-    app.quit();
+    app.exit(process.exitCode ?? 0);
   });

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { readFile, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { nativeTheme, webContents } = require('electron');
+const { fillsFullscreenViewport } = require('./support/sidebar-geometry.cjs');
 const { verifyWindowDrag, observeWindowDragRecall, verifyWindowDragRecall } = require('./window-drag-ui.cjs');
 
 /** Exercises the production renderer in a blank Session, before its header exists. */
@@ -599,12 +600,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   const webId = await rendererValue(window, `() => document.querySelector('.minke-tabs-native-host[data-kind="web"]').dataset.minkeTabInstance`);
   await click('[data-sidebar-right-mode="fullscreen"]');
   await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="fullscreen"]') !== null`), 'populated Sidebar fullscreen');
-  await waitFor(() => rendererValue(window, `() => {
-    const host = document.querySelector('.minke-tabs-native-host[data-kind="files"]');
-    const rect = host.getBoundingClientRect();
-    // Native DockKit keeps its 0.5px pane border in fullscreen.
-    return !host.inert && Math.abs(rect.left) < 1 && Math.abs(rect.width - innerWidth) < 1;
-  }`), 'file editor fills the fullscreen viewport');
+  await waitFor(() => rendererValue(window, `() => (${fillsFullscreenViewport})('.minke-tabs-native-host[data-kind="files"]')`), 'file editor fills the fullscreen viewport');
   if (process.env.MINKE_SIDEBAR_SCREENSHOT) await writeFile(`${process.env.MINKE_SIDEBAR_SCREENSHOT}.files-fullscreen.png`, (await window.webContents.capturePage()).toPNG());
   await click(`[data-minke-tab-title="${webId}"]`);
   await waitFor(() => rendererValue(window, `() => !document.querySelector('.minke-tabs-native-host[data-kind="web"]').inert`), 'first fullscreen tab receives a real mouse click');
