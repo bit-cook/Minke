@@ -307,6 +307,7 @@ async function run() {
     window.webContents,
     () => true,
   );
+  let initialUserAgent;
   window.webContents.on(
     'will-attach-webview',
     (event, webPreferences, params) => {
@@ -315,6 +316,7 @@ async function run() {
         params,
       );
       if (decision !== 'secured') event.preventDefault();
+      initialUserAgent = params.useragent;
     },
   );
   let agentGuest;
@@ -374,6 +376,7 @@ async function run() {
       (() => {
         const view = document.createElement("webview");
         view.setAttribute("src", "about:blank");
+        view.setAttribute("useragent", "RendererOverride/1");
         view.setAttribute(
           "partition",
           ${JSON.stringify(pending.partition)}
@@ -397,6 +400,7 @@ async function run() {
       timeoutMs: 5_000,
     });
     assert.ok(fixture.userAgents.length > 0);
+    assert.equal(initialUserAgent, expectedUserAgent, 'the initial guest load must receive the configured identity');
     assert.equal(fixture.userAgents[0], expectedUserAgent);
     assert.doesNotMatch(fixture.userAgents[0], /\bElectron\//u);
     const updatedUserAgent = `${expectedUserAgent} RuntimeTest/1`;

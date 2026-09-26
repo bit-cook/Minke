@@ -768,7 +768,10 @@ export class AgentBrowserRuntime {
     params.src = INITIAL_GUEST_URL;
     delete params.allowpopups;
     delete params.preload;
-    delete params.useragent;
+    // Electron starts the initial load before did-attach-webview. Supply the
+    // trusted identity here so that load cannot race the guest-level override.
+    if (this.#userAgent === undefined) delete params.useragent;
+    else params.useragent = this.#userAgent;
     delete params.webpreferences;
 
     delete webPreferences.preload;
