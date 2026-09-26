@@ -93,8 +93,8 @@ async function verifyWebAccessContract(harnessRoot) {
   const presetRoot = join(
     harnessRoot,
     "packages",
-    "preset",
-    "agent-presets",
+    "bundle",
+    "web-app",
     "presets",
   );
   const [
@@ -139,7 +139,7 @@ async function verifyWebAccessContract(harnessRoot) {
       "utf8",
     ),
     ...["standard", "ptc", "cordis"].map((preset) =>
-      readFile(join(presetRoot, preset, "agent.cordis.yml"), "utf8")
+      readFile(join(presetRoot, `${preset}.patch.yml`), "utf8")
     ),
   ]);
 
@@ -248,10 +248,10 @@ async function verifyWebAccessContract(harnessRoot) {
       presetSources[index],
       [
         "- id: tool-web",
-        "  name: '@deepseek-ai/dsh-tool-web'",
-        "  config:",
-        "    fetch: true",
-        "    searchTimeoutMs: 60000",
+        "            name: '@deepseek-ai/dsh-tool-web'",
+        "            config:",
+        "              fetch: true",
+        "              searchTimeoutMs: 60000",
       ].join("\n"),
       `Harness ${preset} Agent Preset no longer exposes Minke's bounded web_search and SSRF-safe web_fetch tools.`,
     );
@@ -263,6 +263,7 @@ async function verifyTurnNavigationContract(harnessRoot) {
     webAppBundlePatchSource,
     sessionContractSource,
     chatViewSource,
+    chatNavigationSource,
   ] = await Promise.all([
     readFile(
       join(
@@ -300,6 +301,7 @@ async function verifyTurnNavigationContract(harnessRoot) {
       ),
       "utf8",
     ),
+    readFile(join(harnessRoot, "packages", "client", "ui-chat", "src", "client", "chat", "use-chat-navigation.ts"), "utf8"),
   ]);
 
   requireSourceSeam(
@@ -318,8 +320,8 @@ async function verifyTurnNavigationContract(harnessRoot) {
     "Harness Chat no longer consumes the whole-session turn outline.",
   );
   requireSourceSeam(
-    chatViewSource,
-    "void loadThrough(item.anchor.seq)",
+    chatNavigationSource,
+    "void this.input.loadThrough(jump.seq).then(settled, settled)",
     "Harness Chat no longer pages unloaded turns before jumping to them.",
   );
 }
@@ -435,12 +437,12 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
   );
   for (const [fragment, message] of [
     [
-      "- id: time-context\n      name: '@deepseek-ai/dsh-time-context'",
-      `${bundle.patch} must compose native time-context before Schedule.`,
+      "- id: time-context\n  disabled: false",
+      `${bundle.patch} must enable native time-context before Schedule.`,
     ],
     [
-      "- id: schedule\n      name: '@deepseek-ai/dsh-schedule'",
-      `${bundle.patch} must compose the native durable Schedule runtime.`,
+      "- id: schedule\n  disabled: false",
+      `${bundle.patch} must enable the native durable Schedule runtime.`,
     ],
     [
       "- id: ui-schedule\n  disabled: false",
@@ -711,7 +713,7 @@ export async function verifyHarnessContract(projectRoot) {
         harnessRoot,
         "packages",
         "client",
-        "ui-settings-plugins",
+        "ui-plugin-manager",
         "src",
         "client",
         "slot-contract.ts",
@@ -917,7 +919,7 @@ export async function verifyHarnessContract(projectRoot) {
 
   requireSourceSeam(
     pluginSource,
-    "spawnSync('pnpm'",
+    "runPluginCommand({ profile, installAnchor: INSTALL_ANCHOR, cwd: process.cwd() }, args, {",
     "Harness dynamic plugin installer changed; review the desktop pnpm adapter.",
   );
   requireSourceSeam(
@@ -962,8 +964,8 @@ export async function verifyHarnessContract(projectRoot) {
   );
   requireSourceSeam(
     settingsPluginSlotSource,
-    "'settings.plugin.item': { kind: 'keyed'; scope: 'root'; owner: SettingsPluginItemOwnerProps }",
-    "Harness keyed plugin settings-card API changed.",
+    "'plugins.item': { kind: 'list'; scope: 'root'; owner: PluginConfigViewProps }",
+    "Harness Plugins page configuration API changed.",
   );
   requireSourceSeam(
     settingsControllerSource,
@@ -992,7 +994,7 @@ export async function verifyHarnessContract(projectRoot) {
   );
   requireSourceSeam(
     deepSeekConfigSource,
-    "reasoningEffort?: 'off' | 'low' | 'high' | 'max'",
+    "reasoningEffort: Volatile<'off' | 'low' | 'high' | 'max' | undefined>",
     "Harness DeepSeek low reasoning-effort API changed.",
   );
   requireSourceSeam(

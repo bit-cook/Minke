@@ -54,7 +54,7 @@ const projectRoot = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
 );
 
-const subprocessRunnerChunk = "runner-launch-BnjugUhn.js";
+const subprocessRunnerChunk = "runner-launch-B2zsQ1Dz.js";
 
 async function preparePatchedHarnessEnvironment(runtimeRoot) {
   await writeFile(
@@ -99,8 +99,8 @@ async function preparePatchedHarnessEnvironment(runtimeRoot) {
     ["dsh-sandbox-local", "packages/sandbox/sandbox-local", ["lib/index.js"]],
     ["dsh-ptc-runtime-node", "packages/ptc-runtime/ptc-runtime-node", ["lib/index.js"]],
     ["dsh-experimental-ptc-runtime-python", "packages/experimental/ptc-runtime-python", ["lib/index.js"]],
-    ["dsh", "apps/cli", ["lib/plugin-Bk_PbPwP.js", "lib/types/plugin.js"]],
     ["node-addon-system", "native/system/packages/entry", ["lib/index.js"]],
+    ["dsh-sdk-client", "packages/sdk/client", ["lib/index.js", "lib/types/client.js"]],
   ]) {
     for (const file of files) {
       targets.set(
@@ -367,6 +367,10 @@ async function withPatchedSubprocessLaunches(runtimeRoot, callback) {
     'export { execFile, execFileSync, spawnSync } from "node:child_process";',
     `export const spawn = (...args) => globalThis[${JSON.stringify(launchKey)}](...args);`,
   ].join("\n"));
+  const ptyStub = join(runtimeRoot, "node-pty.cjs");
+  const koffiStub = join(runtimeRoot, "koffi.cjs");
+  await writeFile(ptyStub, `exports.spawn = (...args) => globalThis[${JSON.stringify(launchKey)}](...args);`);
+  await writeFile(koffiStub, "exports.pointer = type => type;");
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
       let url;
@@ -375,6 +379,9 @@ async function withPatchedSubprocessLaunches(runtimeRoot, callback) {
       } else if (specifier === "@deepseek-ai/dsh-http-proxy") {
         url = pathToFileURL(join(projectRoot,
           "vendor/deepseek-harness/packages/util/http-proxy/lib/index.js")).href;
+      } else if (specifier === "@deepseek-ai/dsh-lazy-require") {
+        url = pathToFileURL(join(projectRoot,
+          "vendor/deepseek-harness/packages/util/lazy-require/lib/index.js")).href;
       } else if (specifier === "@deepseek-ai/dsh-subprocess") {
         url = subprocessUrl;
       } else if (specifier === "@deepseek-ai/dsh-subprocess/control") {
@@ -382,9 +389,9 @@ async function withPatchedSubprocessLaunches(runtimeRoot, callback) {
       } else if (specifier === "@deepseek-ai/dsh-timeout") {
         url = stub("export const MAX_TIMER_DELAY_MS = 2147483647;");
       } else if (specifier === "koffi") {
-        url = stub("export default { pointer: (type) => type };");
+        url = pathToFileURL(koffiStub).href;
       } else if (specifier === "node-pty") {
-        url = stub(`export const spawn = (...args) => globalThis[${JSON.stringify(launchKey)}](...args);`);
+        url = pathToFileURL(ptyStub).href;
       } else if (specifier === "@deepseek-ai/dsh-win32-process") {
         url = stub("export function loadWin32ProcessBindings() {}; export function probeCurrentTokenJobSupport() {};");
       } else if (specifier === "@deepseek-ai/dsh-subprocess-local/runner") {
@@ -1049,7 +1056,6 @@ test("every process.execPath production seam remains classified", async () => {
   }
   assert.deepEqual(topLevelOwners.sort(), [
     "desktop/main/application.ts",
-    "desktop/main/main-window.ts",
     "scripts/forge/run.mjs",
     "scripts/harness/node-pty-probe.cjs",
     "scripts/harness/pnpm-invocation.mjs",
@@ -1077,7 +1083,11 @@ test("every process.execPath production seam remains classified", async () => {
   const upstreamProcessExecPathSeams = {
     buildTimeComposition: [
       "vendor/deepseek-harness/apps/desktop/scripts/dev.ts",
+      "vendor/deepseek-harness/apps/desktop/scripts/flock-entry.ts",
+      "vendor/deepseek-harness/apps/desktop/scripts/installed-update-packaging.ts",
+      "vendor/deepseek-harness/apps/desktop/scripts/installed-update-signature.mjs",
       "vendor/deepseek-harness/apps/desktop/scripts/package-target.ts",
+      "vendor/deepseek-harness/apps/desktop/scripts/test-host-updates.ts",
       "vendor/deepseek-harness/packages/experimental/webworker-packer/src/repository.ts",
     ],
     executableSidecarResolution: [
@@ -1085,6 +1095,7 @@ test("every process.execPath production seam remains classified", async () => {
     ],
     managedHarnessRuntime: [
       // The upstream desktop app is not part of Minke's runtime closure.
+      "vendor/deepseek-harness/apps/desktop-host/src/index.ts",
       "vendor/deepseek-harness/apps/desktop/src/main.ts",
       "vendor/deepseek-harness/packages/sdk/client/src/launch.ts",
     ],
@@ -1100,11 +1111,18 @@ test("every process.execPath production seam remains classified", async () => {
       // MCP's child_process spawn uses Minke's installed Node bootstrap.
       "vendor/deepseek-harness/packages/experimental/browser-use-chrome-devtools-mcp/src/index.ts",
       "vendor/deepseek-harness/packages/experimental/browser-use-playwright-mcp/src/index.ts",
+      // Speech uses the same subprocess provider and private Node bootstrap.
+      "vendor/deepseek-harness/packages/experimental/speech-to-text-sensevoice/src/recognizer.ts",
       // PTC launches through the patched subprocess provider, including control FD 3.
       "vendor/deepseek-harness/packages/ptc-runtime/ptc-runtime-node/src/index.ts",
       "vendor/deepseek-harness/packages/sandbox/sandbox-local/src/index.ts",
       "vendor/deepseek-harness/packages/subagent/subagent-codex/src/run.ts",
       "vendor/deepseek-harness/packages/subprocess/subprocess-local/src/runner-launch.ts",
+    ],
+    standaloneNodeRequired: [
+      // Office skill scripts explicitly reject Electron without a configured
+      // standalone Node. This is distinct from the embedded Office preview.
+      "vendor/deepseek-harness/packages/skill/skill-office/src/index.ts",
     ],
   };
   assert.deepEqual(
@@ -1159,6 +1177,8 @@ test("every process.execPath production seam remains classified", async () => {
     }
   }
   assert.deepEqual(sharedScrubOwners.sort(), [
+    "vendor/deepseek-harness/packages/boot/plugin-manager/src/github-connection.ts",
+    "vendor/deepseek-harness/packages/boot/plugin-manager/src/operations.ts",
     "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
     "vendor/deepseek-harness/packages/experimental/browser-use-stagehand-native/src/launch.ts",
     "vendor/deepseek-harness/packages/host/open-in-app/src/resolver.ts",

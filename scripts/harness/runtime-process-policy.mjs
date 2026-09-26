@@ -226,7 +226,7 @@ function hasNamedImport(ast, source, name) {
 }
 
 function catalogAppLaunch(ast, path) {
-  // Harness dsh-v0.1.6-alpha.1 / 0a15e36e7f, packages/host/open-in-app/src/resolver.ts:
+  // Harness dsh-v0.1.7-rc.2 / 477b4f4205, packages/host/open-in-app/src/resolver.ts:
   // launchDetachedApp owns user-selected GUI launches and retains each catalog
   // adapter's visibility. Its pinned vendor source must remain pristine; forcing
   // windowsHide would change that behavior. Minke's staging policy owns this
@@ -320,6 +320,32 @@ function catalogAppLaunch(ast, path) {
 
 function runtimePath(runtimeRoot, path) {
   return relative(runtimeRoot, path).split(sep).join("/");
+}
+
+async function libreOfficeBuildSources(firstPartyRoot) {
+  // libreoffice-kit 0.1.1 ships its engine rebuild sources alongside binaries
+  // for source redistribution. prebuilds.json identifies those build inputs;
+  // the converter executes lib/worker.js and bin/, not these source scripts.
+  // Keep the pinned dependency pristine. Minke's staging policy owns this
+  // exception and must re-evaluate it when the engine version changes.
+  // Only declared scripts below sources/engine and sources/scripts are omitted;
+  // runtime JS, undeclared sources, and all other versions remain audited.
+  const sources = new Set();
+  for (const entry of await readdir(firstPartyRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() ||
+      !/^libreoffice-kit-(?:(?:darwin|win32)-(?:arm64|x64)|wasm)$/u.test(entry.name)) continue;
+    const packageRoot = join(firstPartyRoot, entry.name);
+    const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+    if (manifest.name !== `@deepseek-ai/${entry.name}` || manifest.version !== "0.1.1") continue;
+    const prebuilds = JSON.parse(await readFile(join(packageRoot, "prebuilds.json"), "utf8"));
+    for (const path of prebuilds.source?.files ?? []) {
+      if (typeof path === "string" &&
+        /^sources\/(?:engine|scripts)\/(?:[\w-]+\/)*[\w-]+\.mjs$/u.test(path)) {
+        sources.add(join(packageRoot, path));
+      }
+    }
+  }
+  return sources;
 }
 
 async function javascriptFiles(root) {
@@ -756,8 +782,10 @@ export async function inspectHarnessRuntimeProcessPolicy(runtimeRoot) {
   const launches = [];
   const restrictedLaunches = [];
   const violations = [];
+  const buildSources = await libreOfficeBuildSources(firstPartyRoot);
 
   for (const path of await javascriptFiles(firstPartyRoot)) {
+    if (buildSources.has(path)) continue;
     const source = await readFile(path, "utf8");
     const ast = parseRuntimeJavaScript(source, runtimePath(runtimeRoot, path));
     const bindings = collectChildProcessBindings(ast);

@@ -1,19 +1,3 @@
-diff --git a/node_modules/@deepseek-ai/dsh/lib/plugin-Bk_PbPwP.js b/node_modules/@deepseek-ai/dsh/lib/plugin-Bk_PbPwP.js
---- a/node_modules/@deepseek-ai/dsh/lib/plugin-Bk_PbPwP.js
-+++ b/node_modules/@deepseek-ai/dsh/lib/plugin-Bk_PbPwP.js
-@@ -111,3 +111,4 @@
- 		stdio: "inherit",
--		shell: process.platform === "win32"
-+		shell: process.platform === "win32",
-+		windowsHide: true
- 	});
-diff --git a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
---- a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
-+++ b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
-@@ -120,2 +120,3 @@
-         shell: process.platform === 'win32',
-+        windowsHide: true,
-     });
 diff --git a/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js b/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js
@@ -92,35 +76,43 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
 +		timeout: SYSTEMCTL_TIMEOUT_MS,
 +		windowsHide: true
  	});
-@@ -178,3 +181,4 @@
+@@ -172,3 +175,4 @@
  			env: managerEnvironment(),
 -			timeout: SYSTEMCTL_TIMEOUT_MS
 +			timeout: SYSTEMCTL_TIMEOUT_MS,
 +			windowsHide: true
  		});
-@@ -212,3 +216,4 @@
+@@ -195,3 +199,4 @@
+ 			env: managerEnvironment(),
+-			timeout: SYSTEMCTL_TIMEOUT_MS
++			timeout: SYSTEMCTL_TIMEOUT_MS,
++			windowsHide: true
+ 		});
+@@ -229,3 +234,4 @@
  				stdio: "ignore",
 -				timeout: SYSTEMCTL_TIMEOUT_MS
 +				timeout: SYSTEMCTL_TIMEOUT_MS,
 +				windowsHide: true
  			});
-@@ -475,2 +480,3 @@
+@@ -264,3 +270,4 @@
+ 				stdio: "ignore",
+-				timeout: SYSTEMCTL_TIMEOUT_MS
++				timeout: SYSTEMCTL_TIMEOUT_MS,
++				windowsHide: true
+ 			});
+@@ -492,2 +499,3 @@
  			stdio: runnerStdio(spec, false),
 +			windowsHide: true,
  			detached: true
-@@ -583,2 +589,3 @@
- 			env: runnerEnvironment(WINDOWS_RUNNER_SELECTION, invocation),
-+			windowsHide: true,
- 			stdio: runnerStdio(spec, true, ignoredStdinFd ?? "pipe")
-diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-BnjugUhn.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-BnjugUhn.js
---- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-BnjugUhn.js
-+++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-BnjugUhn.js
-@@ -328,3 +328,3 @@
+diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
+--- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
++++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
+@@ -334,3 +334,3 @@
  	close: closeSync,
 -	exec: (file, args) => execFileSync(file, args, { encoding: "utf8" }),
 +	exec: (file, args) => execFileSync(file, args, { encoding: "utf8", windowsHide: true }),
  	kill: (pid, signal) => process.kill(pid, signal)
-@@ -1013,3 +1013,3 @@
+@@ -1033,3 +1033,3 @@
  		detached: platform !== "win32",
 -		windowsHide: platform === "win32"
 +		windowsHide: true
@@ -146,3 +138,10 @@ diff --git a/node_modules/@deepseek-ai/node-addon-system/lib/index.js b/node_mod
          stdio: ['ignore', 'pipe', 'ignore'],
 +        windowsHide: true,
      });
+diff --git a/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js b/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
+@@ -353,2 +353,3 @@
+ 		const child = spawn(this.runtime.command, this.runtime.args, {
++			windowsHide: true,
+ 			cwd: this.runtime.cwd,

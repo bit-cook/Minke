@@ -1,17 +1,16 @@
 - id: llm-pi-ai
-  # model-runtime mounts this adapter before background local discovery. The
-  # nested instance keeps the same settings namespace and user-settings layer.
-  disabled: true
+  # The staged base mounts Minke's wrapper at the native settings address.
+  # `name` asserts that composition; Cordis patches cannot replace a module.
+  name: '@lencx/minke-model-runtime/dsh'
+
+# Enable DSH's existing opt-in entries; do not declare duplicate instances.
+- id: time-context
+  disabled: false
+
+- id: schedule
+  disabled: false
 
 - insert:
-    # DSH ships Schedule as an explicit Web opt-in. Minke enables the durable
-    # host runtime and read-only conversation-header catalog together.
-    - id: time-context
-      name: '@deepseek-ai/dsh-time-context'
-
-    - id: schedule
-      name: '@deepseek-ai/dsh-schedule'
-
     # This is an additional credential-free tool, not a provider override.
     # Keep DSH's native web_search/web_fetch composition and provider selection
     # intact, including its credentials, retry UI, and structured failures.
@@ -20,22 +19,6 @@
       disabled: !!js process.env.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'
       config:
         baseURL: !!js process.env.MINKE_WEB_SEARCH_BASE_URL
-
-    # Minke's two supported local-model runtimes stay configurable even when
-    # their service is offline. Auto-start is an explicit desktop preference.
-    - id: model-runtime
-      name: '@lencx/minke-model-runtime/dsh'
-      config:
-        lmStudio:
-          enabled: true
-          lifecycle: !!js "process.env.MINKE_LM_STUDIO_ENABLED === '1' && process.env.MINKE_LM_STUDIO_COMMAND ? 'ensure-running' : 'external'"
-          command: !!js process.env.MINKE_LM_STUDIO_COMMAND
-          baseURL: !!js process.env.LM_STUDIO_BASE_URL
-        ollama:
-          enabled: true
-          lifecycle: !!js "process.env.MINKE_OLLAMA_ENABLED === '1' && process.env.MINKE_OLLAMA_COMMAND ? 'ensure-running' : 'external'"
-          command: !!js process.env.MINKE_OLLAMA_COMMAND
-          baseURL: !!js process.env.OLLAMA_BASE_URL
 
     - id: minke-overlay
       name: '@lencx/minke-harness-overlay'

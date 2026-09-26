@@ -29,20 +29,28 @@ const {
   nodePtyProbeInvocation,
 } = require("../scripts/harness/node-pty-probe.cjs");
 
+test("Plugin Manager command-not-found diagnostics are recognized on every platform", () => {
+  for (const platform of ["darwin", "linux", "win32"]) {
+    const result = { code: 127, stderr: "dsh: pnpm was not found; install pnpm and make it available on PATH.\n" };
+    assert.equal(isCommandUnavailableResult(result, "pnpm", { platform }), true);
+    assert.equal(isCommandUnavailableResult({ ...result, code: 0 }, "pnpm", { platform }), false);
+    assert.equal(isCommandUnavailableResult({ ...result, stderr: "dsh: pnpm failed; diagnostics: pnpm.log" }, "pnpm", { platform }), false);
+    assert.equal(isCommandUnavailableResult(result, "node", { platform }), false);
+  }
+});
+
 function assertHarnessStagingOrder(stageSource) {
   stageSource = stageSource.replaceAll("\r\n", "\n");
   const completeInstall = stageSource.indexOf(
     '"install",\n        "--recursive",\n        "--frozen-lockfile"',
   );
   const clean = stageSource.search(
-    /await runPnpm\(\["run", "clean"\], harnessRoot\);/u,
+    /await cleanHarnessSource\(harnessRoot\);/u,
   );
   const build = stageSource.search(
     /await runPnpm\(\s*\["run", "build"\],\s*harnessRoot,\s*minkeHarnessClientBuildEnvironment\(process\.env\),?\s*\);/u,
   );
-  const runtimeOnlyInstall = stageSource.indexOf(
-    '"--filter",\n        `${generatedPackageName}...`',
-  );
+  const runtimeDeploy = stageSource.indexOf('"deploy",');
 
   assert.ok(completeInstall >= 0, "staging must restore every workspace link");
   assert.ok(
@@ -51,8 +59,8 @@ function assertHarnessStagingOrder(stageSource) {
   );
   assert.ok(build > clean, "Harness must build after a clean workspace");
   assert.ok(
-    runtimeOnlyInstall > build,
-    "runtime-only installation must not remove build dependencies before build",
+    runtimeDeploy > build,
+    "production deployment must follow the complete workspace build",
   );
 }
 
@@ -484,7 +492,7 @@ test("Windows staging refuses an ambiguous ambient pnpm command", () => {
   );
 });
 
-test("Harness builds from the complete workspace before runtime-only installation", async () => {
+test("Harness builds from the complete workspace before production deployment", async () => {
   const stageSource = await readFile(
     new URL("../scripts/harness/stage.mjs", import.meta.url),
     "utf8",

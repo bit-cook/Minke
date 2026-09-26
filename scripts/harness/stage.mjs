@@ -29,6 +29,8 @@ import {
 import {
   minkeHarnessClientBuildEnvironment,
 } from "./client-build-environment.mjs";
+import { cleanHarnessSource } from "./clean-source.mjs";
+import { writeDeployLockfile } from "./deploy-lockfile.mjs";
 import {
   inspectHarnessClientCryptoBoundary,
 } from "./client-crypto-boundary.mjs";
@@ -75,6 +77,8 @@ const runtimeFingerprintPaths = [
   "config/embedded-node-runtime.mts",
   "scripts/harness/build-product-packages.mjs",
   "scripts/harness/client-build-environment.mjs",
+  "scripts/harness/clean-source.mjs",
+  "scripts/harness/deploy-lockfile.mjs",
   "scripts/harness/client-crypto-boundary.mjs",
   "scripts/harness/command-invocation.mjs",
   "scripts/harness/contract.mjs",
@@ -442,6 +446,7 @@ async function writeDeployRoot(
     join(generatedPackageDir, "index.mjs"),
     runtimeEntrySource(contract.packageName),
   );
+  return manifest;
 }
 
 async function copyWorkspacePackage(packageName, packageSource, destination) {
@@ -1038,7 +1043,7 @@ async function main() {
     // those files, so stale output can make an otherwise clean pin fail with
     // missing exports. Harness's repository-owned cleaner preserves installed
     // dependencies and validates every deletion target before rebuilding.
-    await runPnpm(["run", "clean"], harnessRoot);
+    await cleanHarnessSource(harnessRoot);
     await ensureReact18TypeIsolation(harnessRoot);
     await runPnpm(
       ["run", "build"],
@@ -1060,18 +1065,8 @@ async function main() {
 
   let stagingContainer;
   try {
-    await writeDeployRoot(generatedPackageDir, selectedPackages, contract);
-    await runPnpm(
-      [
-        "install",
-        "--filter",
-        `${generatedPackageName}...`,
-        "--lockfile=false",
-        "--ignore-scripts",
-        "--config.node-linker=isolated",
-      ],
-      harnessRoot,
-    );
+    const deployManifest = await writeDeployRoot(generatedPackageDir, selectedPackages, contract);
+    await writeDeployLockfile(harnessRoot, generatedPackageDir, packages, deployManifest);
 
     const runtimeParent = dirname(activeRuntimeRoot);
     await mkdir(runtimeParent, { recursive: true });
@@ -1083,10 +1078,11 @@ async function main() {
         "--filter",
         generatedPackageName,
         "deploy",
-        "--legacy",
         "--prod",
+        "--ignore-scripts",
+        `--lockfile-dir=${generatedPackageDir}`,
+        "--config.inject-workspace-packages=true",
         "--config.node-linker=hoisted",
-        "--config.auto-install-peers=false",
         "--config.link-workspace-packages=true",
         // The upstream desktop signer patch is a build-only dependency outside
         // this production closure. The full workspace install still checks it.

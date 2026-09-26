@@ -61,11 +61,11 @@ function writeContract(projectRoot, commit, additions = {}) {
 
 function productPatch(additionalRows = []) {
   return [
+    "- id: time-context",
+    "  disabled: false",
+    "- id: schedule",
+    "  disabled: false",
     "- insert:",
-    "    - id: time-context",
-    "      name: '@deepseek-ai/dsh-time-context'",
-    "    - id: schedule",
-    "      name: '@deepseek-ai/dsh-schedule'",
     "    - id: minke-web-search",
     "      name: '@lencx/minke-harness-overlay/web-search'",
     "      disabled: !!js process.env.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'",
@@ -99,7 +99,7 @@ function fixture(options = {}) {
     "apps/web/package.json",
     '{"name":"@deepseek-ai/dsh-web-frontend"}\n',
   );
-  write(harnessRoot, "apps/cli/src/plugin.ts", "spawnSync('pnpm')\n");
+  write(harnessRoot, "apps/cli/src/plugin.ts", "runPluginCommand({ profile, installAnchor: INSTALL_ANCHOR, cwd: process.cwd() }, args, {\n");
   write(
     harnessRoot,
     "apps/cli/src/args.ts",
@@ -129,10 +129,10 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
-    "packages/client/ui-settings-plugins/src/client/slot-contract.ts",
-    `'settings.plugin.item': { kind: '${
-      options.settingsPluginItemKind ?? "keyed"
-    }'; scope: 'root'; owner: SettingsPluginItemOwnerProps }\n`,
+    "packages/client/ui-plugin-manager/src/client/slot-contract.ts",
+    `'plugins.item': { kind: '${
+      options.settingsPluginItemKind ?? "list"
+    }'; scope: 'root'; owner: PluginConfigViewProps }\n`,
   );
   write(
     harnessRoot,
@@ -196,8 +196,8 @@ function fixture(options = {}) {
     harnessRoot,
     "packages/llm/llm-deepseek/src/config.ts",
     options.deepSeekLowEffort === false
-      ? "reasoningEffort?: 'off' | 'high' | 'max'\n"
-      : "reasoningEffort?: 'off' | 'low' | 'high' | 'max'\n",
+      ? "reasoningEffort: Volatile<'off' | 'high' | 'max' | undefined>\n"
+      : "reasoningEffort: Volatile<'off' | 'low' | 'high' | 'max' | undefined>\n",
   );
   write(
     harnessRoot,
@@ -344,11 +344,15 @@ function fixture(options = {}) {
       ...(options.turnOutlineConsumer === false
         ? []
         : ["const turnOutline = useProjection('turnOutline')"]),
-      ...(options.turnLoadThrough === false
-        ? []
-        : ["void loadThrough(item.anchor.seq)"]),
       "",
     ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/client/ui-chat/src/client/chat/use-chat-navigation.ts",
+    options.turnLoadThrough === false
+      ? ""
+      : "void this.input.loadThrough(jump.seq).then(settled, settled)\n",
   );
   write(
     harnessRoot,
@@ -457,17 +461,17 @@ function fixture(options = {}) {
   for (const preset of ["standard", "ptc", "cordis"]) {
     write(
       harnessRoot,
-      `packages/preset/agent-presets/presets/${preset}/agent.cordis.yml`,
+      `packages/bundle/web-app/presets/${preset}.patch.yml`,
       [
         "- id: tool-web",
-        "  name: '@deepseek-ai/dsh-tool-web'",
-        "  config:",
-        `    fetch: ${
+        "            name: '@deepseek-ai/dsh-tool-web'",
+        "            config:",
+        `              fetch: ${
           options.webFetchPreset === false && preset === "standard"
             ? "false"
             : "true"
         }`,
-        `    searchTimeoutMs: ${
+        `              searchTimeoutMs: ${
           options.webSearchPreset === false && preset === "standard"
             ? "30000"
             : "60000"
@@ -526,7 +530,7 @@ function fixture(options = {}) {
 
 afterEach(() => {
   for (const root of fixtures.splice(0)) {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
@@ -680,14 +684,14 @@ test("the Harness contract requires shared New Session navigation", async () => 
   );
 });
 
-test("the Harness contract rejects the pre-rc.7 list settings-card API", async () => {
+test("the Harness contract rejects a keyed official Plugins page list", async () => {
   const { projectRoot } = fixture({
-    settingsPluginItemKind: "list",
+    settingsPluginItemKind: "keyed",
   });
 
   await assert.rejects(
     verifyHarnessContract(projectRoot),
-    /keyed plugin settings-card API changed/u,
+    /Plugins page configuration API changed/u,
   );
 });
 

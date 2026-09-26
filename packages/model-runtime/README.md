@@ -10,6 +10,18 @@ The package exposes three interfaces:
 
 The DSH adapter translates `ctx.subprocess`, `ctx.credentials`, the launch environment, and `llm/stream` events into the core host interface. It mounts the upstream `@deepseek-ai/dsh-llm-pi-ai` plugin before discovering local services in parallel, so saved cloud-provider settings are available without waiting for local startup. Discovered providers are published as a base layer without writing user settings. Local initialization failures are logged and leave cloud routes available; disposal waits for discovery and releases any owned processes.
 
+The staged base composition mounts this adapter at the existing `llm-pi-ai`
+Profile entry; an overlay patch's `name` only checks the module identity. Its
+flat Config reuses the native provider schema, keeping volatile fields at fixed
+paths. DSH owns settings migration, validation, and persistence; live provider
+edits take precedence over local discovery without losing cloud routes.
+The owning entry runs the native adapter's validation before a settings write.
+Desktop startup migrates old model-entry name guards in both user Profile layers,
+keeping a one-time `.before-minke-model-runtime` backup beside each changed patch.
+Desktop launch preferences supply the local schema defaults. The command-line
+product overlay must not set this entry's `config`, which would override the
+profile and prevent native Models settings from being saved.
+
 Requests wait only for updates to their own local service, and a cancelled request stops waiting immediately without cancelling the shared update. A running LM Studio or Ollama service with a valid empty model catalog counts as ready for auto-start acknowledgement; it does not publish an empty model provider.
 
 LM Studio supports `external`, `ensure-running`, and `managed` lifecycles. Ollama supports `external` and `ensure-running`. Generic loopback OpenAI-compatible providers remain discovery-only and do not gain process ownership.

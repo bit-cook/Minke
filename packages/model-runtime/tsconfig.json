@@ -11,6 +11,8 @@
     "src"
   ],
   "references": [
+    { "path": "../../vendor/deepseek-harness/packages/settings/settings" },
+    { "path": "../../vendor/deepseek-harness/vendor/loader" },
     {
       "path": "../../vendor/deepseek-harness/vendor/cordis"
     },

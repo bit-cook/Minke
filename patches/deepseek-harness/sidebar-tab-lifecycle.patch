@@ -1,9 +1,7 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
-@@ -484,24 +484,30 @@
- 		* @param seed - the registered default page, read at each mint.
- 		* @returns the handle (spec, type, identity, and factory in one).
+@@ -4893,3 +4893,9 @@
  		*/
 -		function createSidebarRightStore(seed) {
 +		function createSidebarRightStore(seed, admit = () => true) {
@@ -13,9 +11,8 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 +                accepted?.();
 +                return after;
 +            });
- 			return (0, _deepseek_ai_dsh_client_store.defineStore)({
- 				init: () => ({ bySession: {} }),
- 				actions: {
+ 			const handle = (0, _deepseek_ai_dsh_client_store.defineStore)({
+@@ -4898,15 +4904,15 @@
  					open: (d, sessionId) => {
 -						d.bySession = seat(d, sessionId, (surface) => surface);
 +						d.bySession = guardedSeat(d, sessionId, (surface) => surface);
@@ -36,21 +33,13 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 -						d.bySession = seat(d, sessionId, (s) => {
 +						d.bySession = guardedSeat(d, sessionId, (s) => {
  							const next = advance(s, (state, mint, makeTab) => (0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(state).length >= 2 || (0, _deepseek_ai_dsh_client_ui_dockkit.getPane)(state, paneId ?? (0, _deepseek_ai_dsh_client_ui_dockkit.activeDockPaneId)(state)).tabs.length === 0 ? [] : (0, _deepseek_ai_dsh_client_ui_dockkit.planSplitPane)(state, mint, paneId, makeTab), seed);
- 							if (settled !== void 0 && next !== s) {
- 								const before = new Set((0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(s.layout));
-@@ -511,7 +517,8 @@
- 						});
- 					},
+@@ -4920,3 +4926,4 @@
  					openContent: (d, sessionId, intent, settled) => {
 -						d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint) => {
 +                        let acceptedId; let accepted = false;
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint) => {
  							const { kind, contentId, title, replaceTab: replace } = intent;
- 							const ops = [...(0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, true)];
- 							const replaced = replace === void 0 ? void 0 : (0, _deepseek_ai_dsh_client_ui_dockkit.findTabPane)(state, replace);
-@@ -539,15 +546,16 @@
- 								type: "closeTab",
- 								tabId: replace
+@@ -4962,11 +4969,12 @@
  							});
 -							settled(planned.tabId);
 +							acceptedId = planned.tabId;
@@ -67,11 +56,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 -						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => {
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => {
  							if (!canCloseTab(s, tabId)) return [];
- 							if (!soleDockedTab(state, tabId)) return [{
- 								type: "closeTab",
-@@ -564,16 +572,16 @@
- 						}, seed));
- 					},
+@@ -4987,12 +4995,12 @@
  					focusTab: (d, sessionId, tabId) => {
 -						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => planFocusTab(state, tabId), seed));
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => planFocusTab(state, tabId), seed));
@@ -88,11 +73,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 -						d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint, makeTab) => {
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint, makeTab) => {
  							if (zone === "top" || zone === "bottom") return [];
- 							if (zone !== "center" && (0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(state).length >= 2) return [];
- 							const plan = () => (0, _deepseek_ai_dsh_client_ui_dockkit.planDropTab)(state, mint, tabId, paneId, zone, makeTab);
-@@ -581,10 +589,10 @@
- 						}, seed));
- 					},
+@@ -5004,6 +5012,6 @@
  					floatTab: (d, sessionId, tabId, rect) => {
 -						d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint) => (0, _deepseek_ai_dsh_client_ui_dockkit.planFloatTab)(state, mint, tabId, rect).ops, seed));
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint) => (0, _deepseek_ai_dsh_client_ui_dockkit.planFloatTab)(state, mint, tabId, rect).ops, seed));
@@ -101,28 +82,17 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 -						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => {
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => {
  							const floated = (0, _deepseek_ai_dsh_client_ui_dockkit.getPane)(state, paneId).tabs[0];
- 							const plan = () => (0, _deepseek_ai_dsh_client_ui_dockkit.planUnfloatPane)(state, paneId);
- 							/* v8 ignore next -- a floating pane holds exactly one tab. */
-@@ -592,7 +600,7 @@
- 						}, seed));
- 					},
+@@ -5015,3 +5023,3 @@
  					moveFloat: (d, sessionId, paneId, x, y) => {
 -						d.bySession = seat(d, sessionId, (s) => advance(s, () => [{
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => [{
  							type: "moveFloat",
- 							paneId,
- 							x,
-@@ -600,20 +608,20 @@
- 						}], seed));
- 					},
+@@ -5023,3 +5031,3 @@
  					resizeFloat: (d, sessionId, paneId, rect) => {
 -						d.bySession = seat(d, sessionId, (s) => advance(s, () => [{
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => [{
  							type: "resizeFloat",
- 							paneId,
- 							rect
- 						}], seed));
- 					},
+@@ -5030,9 +5038,9 @@
  					resizeSplit: (d, sessionId, splitId, sizes) => {
 -						d.bySession = seat(d, sessionId, (s) => advance(s, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planResizeSplit)(splitId, sizes, .2), seed));
 +						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planResizeSplit)(splitId, sizes, .2), seed));
@@ -135,19 +105,11 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 -						d.bySession = seat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepForward));
 +						d.bySession = guardedSeat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepForward));
  					}
- 				}
- 			});
-@@ -1224,6 +1232,7 @@
- 					const sync = () => {
- 						const surface = store.getSnapshot().bySession[sessionId];
+@@ -5727,2 +5735,3 @@
  						if (surface !== void 0) controller.tabDomain.sync(sessionId, surface.layout);
 +                        controller.notifyMinkeTabs();
  					};
- 					const adoption = {
- 						store,
-@@ -1244,6 +1253,89 @@
- 			tabs;
- 			adopted;
+@@ -5750,2 +5759,84 @@
  			binding;
 +
 +            // Minke's pinned extension seam. DSH remains the only layout writer;
@@ -181,13 +143,12 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 +                };
 +                return {
 +                    read: () => ({
-+                        sessionId: this.binding?.sessionId,
 +                        surfaces: [...this.adopted].flatMap(([sessionId]) => {
 +                            const state = surface(sessionId);
 +                            if (!state) return [];
 +                            const pane = _deepseek_ai_dsh_client_ui_dockkit.getPane(state, state.activePaneId);
 +                            const ids = Object.values(state.nodes).flatMap(node => node.kind === "pane" ? node.tabs : []);
-+                            return [{ sessionId, paneIds: _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds(state), expanded: state.expanded, activeId: pane.activeTabId, tabs: ids.map(id => state.tabs[id]) }];
++                            return [{ sessionId, expanded: state.expanded, activeId: pane.activeTabId, paneIds: Object.values(state.nodes).filter(node => node.kind === "pane").map(node => node.id), tabs: ids.map(id => state.tabs[id]) }];
 +                        })
 +                    }),
 +                    open: (sessionId, tab, activate) => {
@@ -233,34 +194,8 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 +            }
 +
  			closeHandlers = /* @__PURE__ */ new Map();
- 			/**
- 			* Register resource cleanup before explicit removal. Failure preserves the tab.
-@@ -1282,8 +1374,10 @@
- 			*/
- 			bind(binding) {
- 				this.binding = binding;
-+                this.notifyMinkeTabs();
- 				return () => {
- 					if (this.binding === binding) this.binding = void 0;
-+                    this.notifyMinkeTabs();
- 				};
- 			}
- 			/**
-@@ -3761,7 +3855,7 @@
- 			const t = ctx.locale.bind(NS);
- 			const tabs = new SidebarRightTabRegistry(ctx);
- 			const { controller, adopt } = createSidebarRightController(tabs, (address, signal) => {
--				ctx.resources.pin(address, signal);
-+				if (!address.startsWith("dsh-resource://minke-tab/")) ctx.resources.pin(address, signal);
- 			});
- 			const disposeRegistry = ctx.reflect.provide("sidebarRightTabs", tabs);
- 			const disposeService = ctx.reflect.provide("sidebarRight", controller);
-@@ -3775,7 +3869,7 @@
- 				en
- 			}), "ui-sidebar-right: dictionaries");
+@@ -8296,3 +8388,3 @@
  			ctx.effect(() => {
 -				const handle = createSidebarRightStore(() => defaultSeed(tabs));
 +				const handle = createSidebarRightStore(() => defaultSeed(tabs), (sessionId, before, after) => controller.admitMinkeTabs(sessionId, before, after));
- 				const adoptions = [];
- 				const store = {
- 					...handle,
+ 				const adoptions = /* @__PURE__ */ new Map();

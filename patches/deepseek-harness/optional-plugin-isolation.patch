@@ -1,77 +1,41 @@
 diff --git a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
 --- a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
 +++ b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
-@@ -366,10 +366,12 @@
- 		this.fiber?.await().then(notify, notify);
- 	}
+@@ -448,2 +448,3 @@
  	async _init() {
 +		this.failure = void 0;
  		let exports;
- 		try {
- 			exports = await this.parent.tree.import(this.options.name, this.getOuterStack);
+@@ -452,2 +453,3 @@
  		} catch (error) {
 +			this.failure = error;
  			this.ctx.logger.error(error);
- 			return;
- 		} finally {
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
-@@ -1007,13 +1007,35 @@
- * @param options - `userLayer: false` skips reading `cordis.patch.yml`.
- * @returns the resolved bundle layers and optional user patch layer.
+@@ -918,4 +918,12 @@
  */
 +function readMinkePluginPolicy(environment = process.env) {
 +	const safeMode = environment.MINKE_PLUGIN_SAFE_MODE;
 +	if (safeMode !== void 0 && safeMode !== "0" && safeMode !== "1") throw new Error("dsh: invalid MINKE_PLUGIN_SAFE_MODE");
-+	const raw = environment.MINKE_DISABLED_PLUGINS;
-+	let disabled = [];
-+	if (raw !== void 0) {
-+		try {
-+			disabled = JSON.parse(raw);
-+		} catch {
-+			throw new Error("dsh: invalid MINKE_DISABLED_PLUGINS");
-+		}
-+		if (!Array.isArray(disabled) || disabled.length > 512 || disabled.some((name) => typeof name !== "string" || name.length === 0 || name.trim() !== name || /[\0\r\n]/u.test(name)) || new Set(disabled).size !== disabled.length) {
-+			throw new Error("dsh: invalid MINKE_DISABLED_PLUGINS");
-+		}
-+	}
-+	return {
-+		safeMode: safeMode === "1",
-+		disabled: new Set(disabled)
-+	};
++	return { safeMode: safeMode === "1" };
 +}
  function loadProfileDirectory(binName, dir, installAnchor, options = {}) {
- 	const manifest = readProfileManifest(binName, dir);
- 	const bundles = manifest.dsh?.profile?.bundles ?? [];
- 	const rawPatchReload = manifest.dsh?.profile?.patchReload;
- 	if (rawPatchReload !== void 0 && rawPatchReload !== "live" && rawPatchReload !== "startup") throw new Error(`${binName}: profile manifest ${join(dir, "package.json")} dsh.profile.patchReload must be "live" or "startup"`);
- 	const patchReload = rawPatchReload ?? "live";
--	const layers = bundles.map((packageName) => {
+-	const bundles = readProfileManifest(binName, dir).dsh?.profile?.bundles ?? [];
++	const manifest = readProfileManifest(binName, dir);
 +	const externalBundles = new Set(Object.keys(manifest.dependencies ?? {}));
 +	const pluginPolicy = readMinkePluginPolicy();
-+	const layers = bundles.filter((packageName) => !externalBundles.has(packageName) || !pluginPolicy.safeMode && !pluginPolicy.disabled.has(packageName)).map((packageName) => {
- 		const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir);
- 		const declared = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).dsh?.bundle?.patch;
- 		if (declared === void 0) throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`);
-@@ -2406,6 +2428,8 @@
- * shared Agent execution, application endpoints, and Web bootstrap/transport.
- */
++	const bundles = (manifest.dsh?.profile?.bundles ?? []).filter(packageName => !externalBundles.has(packageName) || !pluginPolicy.safeMode);
+ 	const layers = [];
+@@ -3835,2 +3843,4 @@
  const requiredStartupEntryIds = new Set([
 +	"minke-overlay",
-+	"model-runtime",
++	"llm-pi-ai",
  	"agent-loop",
- 	"webserver",
- 	"modules",
 diff --git a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
-@@ -113,7 +113,7 @@
- 					entryId: pluginEntryId(entry.id),
- 					moduleName: entry.options.name,
- 					enabled: !entry.disabled,
--					fiberPhase: entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state]
-+					fiberPhase: entry.failure === void 0 ? entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state] : "failed"
- 				});
- 			}
- 			const presets = this.ctx.get("agentPresets");
+@@ -131,3 +131,3 @@
+ 			enabled: !entry.disabled,
+-			fiberPhase: entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state],
++			fiberPhase: entry.failure === void 0 ? entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state] : "failed",
+ 			...meta === void 0 ? {} : { meta }

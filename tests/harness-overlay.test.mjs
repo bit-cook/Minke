@@ -450,19 +450,12 @@ test("the product overlay leaves product subagents on demand and composes the mo
   );
   assert.match(
     patch,
-    /id: llm-pi-ai[\s\S]*disabled: true/u,
-  );
-  assert.match(
-    patch,
-    /id: model-runtime[\s\S]*name: '@lencx\/minke-model-runtime\/dsh'[\s\S]*enabled: true[\s\S]*lifecycle: !!js "process\.env\.MINKE_LM_STUDIO_ENABLED === '1' && process\.env\.MINKE_LM_STUDIO_COMMAND \? 'ensure-running' : 'external'"[\s\S]*command: !!js process\.env\.MINKE_LM_STUDIO_COMMAND/u,
-  );
-  assert.match(
-    patch,
-    /ollama:[\s\S]*enabled: true[\s\S]*lifecycle: !!js "process\.env\.MINKE_OLLAMA_ENABLED === '1' && process\.env\.MINKE_OLLAMA_COMMAND \? 'ensure-running' : 'external'"[\s\S]*command: !!js process\.env\.MINKE_OLLAMA_COMMAND/u,
+    /id: llm-pi-ai[\s\S]*name: '@lencx\/minke-model-runtime\/dsh'/u,
   );
   assert.doesNotMatch(
     patch,
-    /lmStudio:[\s\S]*lifecycle: ensure-running/u,
+    /^\s+(?:lmStudio|ollama):/mu,
+    "local defaults belong to the runtime schema, not a command-line config override",
   );
   assert.doesNotMatch(
     patch,
@@ -842,7 +835,7 @@ test("Data Home primary action keeps readable colors on hover", () => {
   );
 });
 
-test("desktop Session export retains the upstream DSH action and modal", () => {
+test("desktop Session export retains the upstream DSH action", () => {
   assert.doesNotMatch(
     tabsInstallSource,
     /id:\s*"session-log-download"/u,

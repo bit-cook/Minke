@@ -1,0 +1,12 @@
+diff --git a/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml b/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml
+--- a/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml
++++ b/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml
+@@ -125,7 +125,7 @@
+     # adapters exist is composition; which providers run is the user's settings
+     # document.
+     - id: llm-pi-ai
+-      name: '@deepseek-ai/dsh-llm-pi-ai'
++      name: '@lencx/minke-model-runtime/dsh'
+ 
+     - id: session-persistence-jsonl
+       name: '@deepseek-ai/dsh-session-persistence-jsonl'

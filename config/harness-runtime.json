@@ -1,9 +1,9 @@
 {
   "repository": "deepseek-ai/deepseek-harness",
   "submodulePath": "vendor/deepseek-harness",
-  "commit": "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d",
+  "commit": "477b4f420553e8a52c2fbccc464d7561b239c443",
   "packageName": "@deepseek-ai/dsh",
-  "packageVersion": "0.1.6-alpha.1",
+  "packageVersion": "0.1.7-rc.2",
   "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
   "pnpmVersion": "11.7.0",
   "runtimeSizeBudgetBytes": {
@@ -16,12 +16,14 @@
     "patches/deepseek-harness/win32-directory-picker.patch",
     "patches/deepseek-harness/windows-background-processes.patch",
     "patches/deepseek-harness/optional-plugin-isolation.patch",
+    "patches/deepseek-harness/embedded-profile-resolution.patch",
+    "patches/deepseek-harness/model-runtime-composition.patch",
     "patches/deepseek-harness/dynamic-trusted-hosts.patch",
     "patches/deepseek-harness/process-environment-boundaries.patch",
-    "patches/deepseek-harness/document-preview-browser-crypto.patch",
     "patches/deepseek-harness/connection-rpc-webserver-scope.patch",
     "patches/deepseek-harness/sidebar-tab-lifecycle.patch",
-    "patches/deepseek-harness/embedded-document-preview.patch"
+    "patches/deepseek-harness/embedded-document-preview.patch",
+    "patches/deepseek-harness/session-export-feedback.patch"
   ],
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

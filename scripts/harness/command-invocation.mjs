@@ -20,12 +20,13 @@ export function isCommandUnavailableResult(
     return false;
   }
   const normalizedStderr = result.stderr.toLowerCase();
-  if (!normalizedStderr.includes(command.toLowerCase())) return false;
-  if (platform === "win32") return result.code === 1;
-  return (
-    result.code === 127 &&
-    normalizedStderr.includes(`${command.toLowerCase()} not found on path`)
-  );
+  const name = command.toLowerCase();
+  if (!normalizedStderr.includes(name)) return false;
+  if (result.code === 127) {
+    return normalizedStderr.includes(`${name} not found on path`) ||
+      normalizedStderr.includes(`${name} was not found; install ${name} and make it available on path.`);
+  }
+  return platform === "win32" && result.code === 1;
 }
 
 export function resolveCommandInvocation(

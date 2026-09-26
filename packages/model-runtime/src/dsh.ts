@@ -3,6 +3,8 @@
  * @module @lencx/minke-model-runtime/dsh
  */
 import type { Context, Fiber } from "@deepseek-ai/cordis";
+import type {} from "@deepseek-ai/cordis-plugin-loader";
+import type {} from "@deepseek-ai/dsh-settings";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import type {
@@ -46,19 +48,19 @@ const COMMAND_RESOLVE_TIMEOUT_MS = 2_000;
 export const name = "model-runtime";
 export const inject = ["credentials", "llm", "subprocess"];
 
-export type Config = ModelRuntimeConfig;
+export type Config = ModelRuntimeConfig & LlmPiAi.Config;
 
 // Capability defaults belong to each model service. The capacity fields below
 // are explicit operator overrides only and therefore intentionally have no
 // schema default.
 const lmStudioConfig: z<LmStudioRuntimeConfig> = z
   .object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true),
     lifecycle: z
       .union(["external", "ensure-running", "managed"])
-      .default("external"),
-    baseURL: z.string().default(""),
-    command: z.string().default(""),
+      .default(process.env.MINKE_LM_STUDIO_ENABLED === "1" && process.env.MINKE_LM_STUDIO_COMMAND ? "ensure-running" : "external"),
+    baseURL: z.string().default(process.env.LM_STUDIO_BASE_URL ?? ""),
+    command: z.string().default(process.env.MINKE_LM_STUDIO_COMMAND ?? ""),
     apiKeyEnv: z.string().role("credential-ref").default(""),
     defaultContextWindow: z.number().step(1).min(1),
     defaultMaxTokens: z.number().step(1).min(1),
@@ -76,17 +78,20 @@ const openAICompatibleConfig: z<OpenAICompatibleRuntimeConfig> = z.object({
 
 const ollamaConfig: z<OllamaRuntimeConfig> = z
   .object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true),
     lifecycle: z
       .union(["external", "ensure-running"])
-      .default("external"),
-    baseURL: z.string().default(""),
-    command: z.string().default(""),
+      .default(process.env.MINKE_OLLAMA_ENABLED === "1" && process.env.MINKE_OLLAMA_COMMAND ? "ensure-running" : "external"),
+    baseURL: z.string().default(process.env.OLLAMA_BASE_URL ?? ""),
+    command: z.string().default(process.env.MINKE_OLLAMA_COMMAND ?? ""),
     defaultContextWindow: z.number().step(1).min(1),
     defaultMaxTokens: z.number().step(1).min(1),
   });
 
+// Volatile fields need a fixed object path. An intersection would place the
+// native providers field under a branch index and fail Cordis validation.
 export const Config: z<Config> = z.object({
+  providers: LlmPiAi.Config.dict!.providers!,
   lmStudio: lmStudioConfig,
   ollama: ollamaConfig,
   openAICompatible: z.array(openAICompatibleConfig).default([]),
@@ -295,7 +300,7 @@ function preparedStream(
 
 async function updatePiAiProviders(
   fiber: Fiber,
-  providers: LiveModelRuntime["providers"],
+  providers: LlmPiAi.Options["providers"],
 ): Promise<void> {
   await Promise.resolve(
     fiber.update({ providers }, true),
@@ -303,21 +308,48 @@ async function updatePiAiProviders(
   await fiber.await();
 }
 
+function configuredProviders(config: Config): NonNullable<LlmPiAi.Options["providers"]> {
+  // Clone the readonly snapshot before passing it to Cordis validation.
+  return structuredClone(config.providers.get()) as NonNullable<LlmPiAi.Options["providers"]>;
+}
+
 /**
  * Mount configured model routes first, then discover local services in the
  * background. Only requests owned by those services wait for their readiness.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  ctx.inject(["settings"], scope => {
+    scope.effect(() => scope.settings.configure({ auto: false }, ctx.fiber));
+  });
   let committedProviders: LiveModelRuntime["providers"] = {};
+  let publishedProviders = configuredProviders(config);
   const adapterFiber = ctx.plugin(LlmPiAi, {
-    providers: committedProviders,
+    providers: publishedProviders,
   });
   await adapterFiber.await();
-  const commit: CommitModelRuntimeProviders =
-    async (providers) => {
-      const previous = committedProviders;
+  // ConfigEditor validates the owning entry before writing its Profile. Run
+  // that candidate through the native adapter's serviceability checks too;
+  // validation on the child alone would happen after persistence.
+  ctx.on("internal/config", function (this: Fiber, _raw, next) {
+    const raw = next();
+    if (this !== ctx.fiber) return raw;
+    const candidate = Config(raw as Config);
+    const native = { providers: { ...committedProviders, ...configuredProviders(candidate) } };
+    adapterFiber.ctx.waterfall(adapterFiber.ctx.fiber, "internal/config", native, () => native);
+    return raw;
+  });
+  let disposed = false;
+  let publication = Promise.resolve();
+  const publish = (providers?: LiveModelRuntime["providers"]): Promise<void> => {
+    const next = publication.then(async () => {
+      if (disposed) return;
+      const local = providers ?? committedProviders;
+      // The native Profile owns persisted provider settings. Explicit user
+      // profiles take precedence over transient local discovery results.
+      const combined = { ...local, ...configuredProviders(config) };
+      const previous = publishedProviders;
       try {
-        await updatePiAiProviders(adapterFiber, providers);
+        await updatePiAiProviders(adapterFiber, combined);
       } catch (error) {
         try {
           await updatePiAiProviders(adapterFiber, previous);
@@ -329,9 +361,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         }
         throw error;
       }
-      committedProviders = providers;
-    };
-  let disposed = false;
+      committedProviders = local;
+      publishedProviders = combined;
+    });
+    publication = next.catch(() => {});
+    return next;
+  };
+  const commit: CommitModelRuntimeProviders = publish;
+  ctx.on("loader/volatile-update", () => {
+    void publish().catch(error => ctx.logger.warn("model-runtime: provider settings update failed", error));
+  });
   const ready = LiveModelRuntime.create(config, createHost(ctx, config))
     .then(async (prepared) => {
       if (!disposed && Object.keys(prepared.providers).length > 0) {
@@ -348,6 +387,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // service cleanup finish. Cordis disposes effects in reverse order.
   ctx.effect(() => async () => {
     disposed = true;
+    await publication;
     const prepared = await ready.catch(() => undefined);
     await prepared?.dispose();
   }, "model-runtime service cleanup");

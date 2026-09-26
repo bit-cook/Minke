@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
@@ -13,6 +13,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { createRequire, Module } from "node:module";
 import { transformSync } from "esbuild";
+import { parse } from "acorn";
 import {
   applyHarnessRuntimePatches,
   resolveHarnessRuntimePatches,
@@ -132,6 +133,56 @@ test("declared Harness runtime patches apply to a disposable runtime", async () 
       'export const mode = "minke";\n',
     );
   });
+});
+
+test("main and Worker profile resolvers work with exposed internals without the native addon", async () => {
+  const runtimeRoot = await mkdtemp(join(tmpdir(), "minke-profile-resolution-"));
+  const targets = ["index.js", "worker/profile-resolution-bootstrap.js"];
+  const originals = [];
+  const probe = (source) => {
+    const module = parse(source, { ecmaVersion: "latest", sourceType: "module" });
+    const accessor = module.body.find(node => node.type === "FunctionDeclaration" && node.id.name === "internalModules");
+    assert.ok(accessor, "profile resolver must have an internal loader accessor");
+    return spawnSync(process.execPath, ["--expose-internals", "--input-type=module", "-e", `
+      import { createRequire as nodeRequire } from "node:module";
+      function createRequire(url) {
+        const require = nodeRequire(url);
+        return id => {
+          if (id === "node-addon-require-builtin") throw new Error("native addon unavailable");
+          return require(id);
+        };
+      }
+      ${source.slice(accessor.start, accessor.end)}
+      try {
+        const modules = internalModules();
+        process.stdout.write(JSON.stringify({ esm: typeof modules.esm.resolveSync, cjs: typeof modules.cjs._resolveFilename }));
+      } catch (error) {
+        process.stdout.write(JSON.stringify({ error: error.message }));
+        process.exitCode = 1;
+      }
+    `], { encoding: "utf8" });
+  };
+  try {
+    for (const suffix of targets) {
+      const source = await readFile(join(repositoryRoot, "vendor/deepseek-harness/packages/boot/app-boot/lib", suffix), "utf8");
+      originals.push(source);
+      const target = join(runtimeRoot, "node_modules/@deepseek-ai/dsh-app-boot/lib", suffix);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, source);
+    }
+    const patches = await resolveHarnessRuntimePatches(repositoryRoot, ["patches/deepseek-harness/embedded-profile-resolution.patch"]);
+    await applyHarnessRuntimePatches(runtimeRoot, patches);
+    for (const [index, suffix] of targets.entries()) {
+      const negative = probe(originals[index]);
+      assert.notEqual(negative.status, 0);
+      assert.deepEqual(JSON.parse(negative.stdout), { error: "native addon unavailable" });
+      const positive = probe(await readFile(join(runtimeRoot, "node_modules/@deepseek-ai/dsh-app-boot/lib", suffix), "utf8"));
+      assert.equal(positive.status, 0, positive.stderr);
+      assert.deepEqual(JSON.parse(positive.stdout), { esm: "function", cjs: "function" });
+    }
+  } finally {
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
 });
 
 test("dedicated RPC routes inject their server and unload with the caller", { timeout: 5_000 }, async () => {
@@ -545,6 +596,35 @@ launch("probe.exe", [], { stdio: "ignore", windowsHide: true });
       assert.equal(inspection.restrictedLaunches.length, 1);
       assert.deepEqual(inspection.violations, []);
       await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+    },
+  );
+});
+
+test("LibreOffice redistribution sources are excluded only for the pinned engine and declared build paths", async () => {
+  await withProcessPolicyFixture(
+    { launchSource: 'import { spawn } from "node:child_process"; spawn("probe", [], { windowsHide: true });' },
+    async (runtimeRoot) => {
+      const packageName = "@deepseek-ai/libreoffice-kit-darwin-arm64";
+      const packageRoot = join(runtimeRoot, "node_modules", packageName);
+      const declared = "sources/scripts/build-native.mjs";
+      const visible = 'import { spawnSync } from "node:child_process"; spawnSync("compiler", []);';
+      await mkdir(join(packageRoot, "sources", "scripts"), { recursive: true });
+      await writeFile(join(packageRoot, declared), visible);
+      await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: packageName, version: "0.1.1" }));
+      await writeFile(join(packageRoot, "prebuilds.json"), JSON.stringify({ source: { files: [declared] } }));
+      await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+
+      // The same visible spawn is still rejected outside the rebuild inputs,
+      // even if an engine manifest erroneously lists a runtime file as source.
+      for (const path of ["lib/worker.mjs", "sources/scripts/unlisted.mjs"]) {
+        await mkdir(dirname(join(packageRoot, path)), { recursive: true });
+        await writeFile(join(packageRoot, path), visible);
+        await writeFile(join(packageRoot, "prebuilds.json"), JSON.stringify({ source: { files: [declared, "lib/worker.mjs"] } }));
+        await assert.rejects(verifyHarnessRuntimeProcessPolicy(runtimeRoot), /spawnSync\(\) must set windowsHide: true/u);
+        await rm(join(packageRoot, path));
+      }
+      await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: packageName, version: "0.1.2" }));
+      await assert.rejects(verifyHarnessRuntimeProcessPolicy(runtimeRoot), /spawnSync\(\) must set windowsHide: true/u);
     },
   );
 });

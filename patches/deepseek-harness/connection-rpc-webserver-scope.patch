@@ -1,18 +1,12 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
-@@ -2,7 +2,7 @@
- import { Readable } from "node:stream";
- import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+@@ -4,3 +4,3 @@
  import { credentialKey } from "@deepseek-ai/dsh-credentials";
 -import { Service } from "@deepseek-ai/cordis";
 +import { getTraceable, Service } from "@deepseek-ai/cordis";
  import { z as z$1 } from "zod";
- //#region lib/types/api-path.js
- /**
-@@ -622,7 +622,10 @@
- 				await bridge(req, res, fetchHandler);
- 			}
+@@ -624,3 +624,6 @@
  		};
 -		return owner.effect(() => owner.webServer.register(route), `client-connection: ${channel} rpc channel`);
 +		// Strip the service's dependency shadow while retaining the caller's scope and lifetime.
@@ -20,5 +14,3 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js b/node
 +			webCtx.effect(() => webCtx.webServer.register(route), `client-connection: ${channel} rpc channel`);
 +		}).dispose;
  	}
- 	registerInterceptor(owner, channel, matches, handler) {
- 		if (channel !== "/api") throw new Error(`connection: invalid shared RPC channel ${JSON.stringify(channel)}`);

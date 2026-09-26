@@ -1,0 +1,18 @@
+diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
+@@ -1482,3 +1482,4 @@
+ function internalModules() {
+-	const addon = createRequire(import.meta.url)("node-addon-require-builtin");
++	const require = createRequire(import.meta.url);
++	const addon = process.execArgv.includes("--expose-internals") ? { requireBuiltin: require } : require("node-addon-require-builtin");
+ 	const esmModule = addon.requireBuiltin("internal/modules/esm/loader");
+diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/worker/profile-resolution-bootstrap.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/worker/profile-resolution-bootstrap.js
+--- a/node_modules/@deepseek-ai/dsh-app-boot/lib/worker/profile-resolution-bootstrap.js
++++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/worker/profile-resolution-bootstrap.js
+@@ -451,3 +451,4 @@
+ function internalModules() {
+-	const addon = createRequire(import.meta.url)("node-addon-require-builtin");
++	const require = createRequire(import.meta.url);
++	const addon = process.execArgv.includes("--expose-internals") ? { requireBuiltin: require } : require("node-addon-require-builtin");
+ 	const esmModule = addon.requireBuiltin("internal/modules/esm/loader");
