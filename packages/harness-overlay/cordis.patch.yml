@@ -10,6 +10,11 @@
 - id: schedule
   disabled: false
 
+# Minke feedback goes to its Issues page; native ratings stay in the local log.
+- id: session-telemetry-otel
+  config:
+    mode: DISABLED
+
 - insert:
     # This is an additional credential-free tool, not a provider override.
     # Keep DSH's native web_search/web_fetch composition and provider selection

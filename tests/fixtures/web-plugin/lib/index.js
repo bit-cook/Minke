@@ -1,6 +1,14 @@
-export const inject = ["pluginInventory", "webServer"];
+export const inject = ["sessionTelemetry", "pluginInventory", "webServer"];
 
 export function apply(ctx) {
+  ctx.webServer.register({
+    kind: "exact",
+    path: "/smoke/feedback-policy",
+    handler(_request, response) {
+      response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      response.end(JSON.stringify({ sharing: ctx.sessionTelemetry.sharing }));
+    },
+  });
   return ctx.webServer.register({
     kind: "exact",
     path: "/smoke/plugin-inventory",

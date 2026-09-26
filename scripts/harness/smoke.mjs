@@ -505,6 +505,13 @@ async function smokeMinkeHostTerminal(server) {
   }
 }
 
+async function smokeFeedbackPolicy(server) {
+  const response = await server.fetch(`${server.baseUrl}/smoke/feedback-policy`);
+  if (!response.ok || (await response.json()).sharing !== "disabled") {
+    throw new Error("Minke must disable the upstream session feedback uploader");
+  }
+}
+
 async function waitForChangedRevision(server, pluginId, initialRevision) {
   const deadline = Date.now() + hmrTimeoutMs;
   while (Date.now() < deadline) {
@@ -940,6 +947,7 @@ async function main() {
     const manifest = await fetchManifest(server);
     const minkeCapabilities = await fetchMinkeHostCapabilities(server);
     await smokeMinkePwa(server);
+    await smokeFeedbackPolicy(server);
     await smokeMinkeHostTerminal(server);
     const productRow = manifest.entries.find(
       (entry) => entry.id === productPackageName,

@@ -6,6 +6,7 @@ import type {
 } from "./core/context.ts";
 import { installDataHome } from "./data-home/install.tsx";
 import { installDesktopClient } from "./desktop/install.ts";
+import { installFeedback } from "./feedback/install.ts";
 import { installLocalModel } from "./local-model/install.ts";
 import {
   installMinkeSettings,
@@ -35,6 +36,7 @@ export const inject = [
 export function apply(ctx: HarnessClientContext): void {
   const minkeSettings = new MinkeSettingsRuntime();
   installDesktopClient(ctx);
+  installFeedback(ctx);
   installAbout(ctx);
   installDataHome(ctx, minkeSettings);
   installBrowserSettings(ctx, minkeSettings);
