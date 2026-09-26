@@ -26,6 +26,7 @@ const {
   webContents,
 } = require('electron');
 const { buildSync } = require('esbuild');
+const { closeServer } = require('./support/http-server.cjs');
 const { subagentScenario, verifySubagentSidebarUI } = require('./subagent-sidebar-ui.cjs');
 
 const projectRoot = join(__dirname, '..');
@@ -117,15 +118,6 @@ async function listen(server) {
   assert.notEqual(address, null);
   assert.equal(typeof address, 'object');
   return `http://127.0.0.1:${String(address.port)}`;
-}
-
-async function closeServer(server) {
-  await new Promise((resolve, reject) => {
-    server.close((error) => {
-      if (error === undefined) resolve();
-      else reject(error);
-    });
-  });
 }
 
 async function startBrowserFixture() {
