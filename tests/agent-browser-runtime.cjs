@@ -11,6 +11,10 @@ const {
   session,
 } = require('electron');
 const { buildSync } = require('esbuild');
+const { closeServer } = require('./support/http-server.cjs');
+
+// Let the run promise report failures after its last window is destroyed.
+app.on('window-all-closed', () => {});
 
 const projectRoot = join(__dirname, '..');
 
@@ -317,6 +321,9 @@ async function run() {
   window.webContents.on(
     'did-attach-webview',
     (_event, guest) => {
+      // Some Electron hosts give the newly created guest their own UA even
+      // when its Session already has an override. Reproduce that input state.
+      guest.setUserAgent(window.webContents.getUserAgent());
       if (!runtime.attachGuest(window.webContents, guest)) {
         guest.close({ waitForBeforeUnload: false });
         return;
@@ -392,6 +399,12 @@ async function run() {
     assert.ok(fixture.userAgents.length > 0);
     assert.equal(fixture.userAgents[0], expectedUserAgent);
     assert.doesNotMatch(fixture.userAgents[0], /\bElectron\//u);
+    const updatedUserAgent = `${expectedUserAgent} RuntimeTest/1`;
+    runtime.setUserAgent(updatedUserAgent);
+    await call('navigate', { sessionId: opened.sessionId, url: `${fixture.url}?identity=updated` });
+    assert.equal(await agentGuest.executeJavaScript('navigator.userAgent'), updatedUserAgent);
+    assert.equal(fixture.userAgents.at(-1), updatedUserAgent);
+    runtime.setUserAgent(expectedUserAgent);
     const snapshot = await call('snapshot', {
       sessionId: opened.sessionId,
     });
@@ -660,7 +673,7 @@ async function run() {
     projectionBinding.dispose();
     runtime.dispose();
     if (!window.isDestroyed()) window.destroy();
-    await new Promise((resolve) => fixture.server.close(resolve));
+    await closeServer(fixture.server);
   }
 }
 
@@ -672,5 +685,5 @@ run()
     process.exitCode = 1;
   })
   .finally(() => {
-    app.quit();
+    app.exit(process.exitCode ?? 0);
   });

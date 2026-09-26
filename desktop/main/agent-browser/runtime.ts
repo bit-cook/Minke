@@ -429,6 +429,9 @@ export class AgentBrowserRuntime {
     this.#userAgent = normalized;
     for (const state of this.#states.values()) {
       state.session.setUserAgent(normalized);
+      if (state.guest && !state.guest.isDestroyed()) {
+        state.guest.setUserAgent(normalized);
+      }
     }
   }
 
@@ -828,6 +831,9 @@ export class AgentBrowserRuntime {
     }
 
     state.guest = guest;
+    // A WebContents can inherit the embedder's UA independently of Session.
+    // Pin the main-owned identity before the first remote navigation.
+    if (this.#userAgent !== undefined) guest.setUserAgent(this.#userAgent);
     this.#protectGuest(state, guest);
     void this.#activateGuest(state, guest);
     return true;
