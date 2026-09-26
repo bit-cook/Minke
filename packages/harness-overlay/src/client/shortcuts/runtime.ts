@@ -77,9 +77,9 @@ interface KeyboardTarget {
 const ACTION_ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u;
 
 /**
- * Owns shortcut registration, collision handling, one keydown listener, and
- * the async desktop persistence port. Harness features remain upstream-clean;
- * Minke product actions register against this local runtime.
+ * Retains Minke's desktop bindings and product actions. DOM dispatch runs after
+ * DSH's window-level keyboard owner, so native commands and modal arbitration
+ * get first refusal instead of being intercepted during document bubbling.
  */
 export class ShortcutRuntime {
   readonly store: ShortcutStore;
@@ -103,7 +103,7 @@ export class ShortcutRuntime {
   constructor(
     store: ShortcutStore,
     target: KeyboardTarget | undefined =
-      typeof document === "undefined" ? undefined : document,
+      typeof window === "undefined" ? undefined : window,
     platform: ShortcutPlatform = detectShortcutPlatform(),
   ) {
     this.store = store;

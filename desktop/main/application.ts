@@ -68,6 +68,10 @@ import {
   type DataHomeSettingsBinding,
 } from "./data-home-settings";
 import {
+  bindDirectoryPickerIpc,
+  type DirectoryPickerBinding,
+} from "./directory-picker";
+import {
   buildDshChildEnvironment,
   DataHomeManager,
 } from "./data-home";
@@ -96,12 +100,12 @@ import {
   clearLegacyPluginCatalogCache,
 } from "./plugin-cache";
 import {
-  bindPluginInstallIpc,
-  type PluginInstallBinding,
-} from "./plugin-install";
+  bindPluginRecoveryIpc,
+  type PluginRecoveryBinding,
+} from "./plugin-recovery-ipc";
 import {
-  PluginInstallationRuntime,
-} from "./plugin-installation";
+  PluginRecoveryRuntime,
+} from "./plugin-recovery";
 import {
   bindRemoteSettingsIpc,
   type RemoteSettingsBinding,
@@ -159,7 +163,6 @@ class DesktopApplication {
   #remoteAccess: RemoteAccessRuntime | undefined;
   #windows: MainWindowRuntime | undefined;
   #desktopLocale: DesktopLocaleRuntime | undefined;
-  #activeDshEnvironment: NodeJS.ProcessEnv | undefined;
   #shortcutMenuBinding: ShortcutMenuBinding | undefined;
   #shortcutSettingsBinding: ShortcutSettingsBinding | undefined;
   #terminalSettingsBinding: TerminalSettingsBinding | undefined;
@@ -172,8 +175,9 @@ class DesktopApplication {
   #remoteSettingsBinding: RemoteSettingsBinding | undefined;
   #remoteHubBinding: RemoteHubBinding | undefined;
   #remoteHub: RemoteHubCapabilityRuntime | undefined;
-  #pluginInstallBinding: PluginInstallBinding | undefined;
+  #pluginRecoveryBinding: PluginRecoveryBinding | undefined;
   #dataHomeSettingsBinding: DataHomeSettingsBinding | undefined;
+  #directoryPickerBinding: DirectoryPickerBinding | undefined;
   #requestedExitCode: number | undefined;
   #quitting = false;
   #shutdownStarted = false;
@@ -213,7 +217,6 @@ class DesktopApplication {
     const windows = new MainWindowRuntime({
       agentBrowser,
       locale,
-      environment: () => this.#dshEnvironment(),
       harnessUrl: () => this.#harnessLifecycle?.url,
       attachHarness: async (window) => {
         await this.#harnessLifecycle?.attach(window);
@@ -269,7 +272,6 @@ class DesktopApplication {
       activeDshHome,
       process.env,
     );
-    this.#activeDshEnvironment = activeDshEnvironment;
     try {
       await clearLegacyPluginCatalogCache(
         app.getPath("userData"),
@@ -284,7 +286,7 @@ class DesktopApplication {
     await windows.create();
     if (this.#revealWindowWhenReady) windows.show();
 
-    const pluginInstallation = new PluginInstallationRuntime({
+    const pluginRecovery = new PluginRecoveryRuntime({
       runtimeRoot: this.#runtimeRoot(),
       dshHome: activeDshHome,
       electronExecutable: process.execPath,
@@ -364,14 +366,9 @@ class DesktopApplication {
         error,
       );
     }
-    try {
-      pluginManagement = await pluginSettingsStore.read();
-    } catch (error) {
-      console.error(
-        "Unable to read plugin management settings:",
-        error,
-      );
-    }
+    // Complete migration before composing the Profile; a failure must not
+    // start previously disabled third-party code.
+    pluginManagement = await pluginRecovery.migrateLegacyProfile();
     try {
       webSearchSettings = await webSearchSettingsStore.read();
     } catch (error) {
@@ -418,6 +415,11 @@ class DesktopApplication {
     };
     applyBrowserSettings(browserSettings);
 
+    this.#directoryPickerBinding = bindDirectoryPickerIpc(ipcMain, {
+      currentWindow: () => windows.current,
+      authorize: (candidate) => windows.authorize(candidate as IpcMainInvokeEvent),
+      showOpenDialog: (window, options) => dialog.showOpenDialog(window, options),
+    });
     this.#shortcutMenuBinding = bindShortcutMenu(
       Menu,
       locale,
@@ -461,9 +463,9 @@ class DesktopApplication {
           candidate as IpcMainInvokeEvent,
         ),
     );
-    this.#pluginInstallBinding = bindPluginInstallIpc(
+    this.#pluginRecoveryBinding = bindPluginRecoveryIpc(
       ipcMain,
-      pluginInstallation,
+      pluginRecovery,
       (candidate) =>
         windows.authorize(
           candidate as IpcMainInvokeEvent,
@@ -804,13 +806,6 @@ class DesktopApplication {
     };
   }
 
-  #dshEnvironment(): NodeJS.ProcessEnv {
-    if (this.#activeDshEnvironment === undefined) {
-      throw new Error("DSH environment was not initialized");
-    }
-    return this.#activeDshEnvironment;
-  }
-
   #runtimeRoot(): string {
     return app.isPackaged
       ? join(process.resourcesPath, "host")
@@ -950,10 +945,12 @@ class DesktopApplication {
     this.#remoteSettingsBinding = undefined;
     this.#remoteHubBinding?.dispose();
     this.#remoteHubBinding = undefined;
-    this.#pluginInstallBinding?.dispose();
-    this.#pluginInstallBinding = undefined;
+    this.#pluginRecoveryBinding?.dispose();
+    this.#pluginRecoveryBinding = undefined;
     this.#dataHomeSettingsBinding?.dispose();
     this.#dataHomeSettingsBinding = undefined;
+    this.#directoryPickerBinding?.dispose();
+    this.#directoryPickerBinding = undefined;
   }
 }
 

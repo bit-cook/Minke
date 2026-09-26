@@ -3,10 +3,9 @@ import type {
 } from "@minke/harness-overlay/client/tabs/types.ts";
 
 export interface TerminalTabPayload {
-  readonly cwd?: string;
   readonly sessionId?: string;
-  readonly status: "starting" | "running" | "exited" | "error";
-  readonly exitCode?: number;
+  readonly contentId: string;
+  readonly terminalId?: string;
   readonly error?: string;
 }
 

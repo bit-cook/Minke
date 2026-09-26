@@ -27,6 +27,7 @@ export function createBrowserHistoryTabRenderer(
 ): TabRenderer {
   return {
     kind: BROWSER_HISTORY_TAB_KIND,
+    persistence: { save: () => ({}), restore: tab => controller.restore(tab) },
     createOptions: () => [{
       id: "browser-history",
       label: t("browserHistory.create.label"),

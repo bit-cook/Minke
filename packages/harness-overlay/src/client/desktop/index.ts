@@ -8,11 +8,10 @@ export type {
   DesktopBridgeWindow,
   DesktopFilesPort,
   DesktopRemoteHubPort,
-  PluginInstallerPort,
+  PluginRecoveryPort,
   DesktopSessionLogsPort,
   DesktopShortcutPort,
   DesktopTabsPort,
-  DesktopTerminalPort,
   DesktopWindowLocalePort,
   DesktopWindowThemePort,
   ModelRuntimeSettingsStore,
@@ -43,8 +42,7 @@ export {
 export {
   desktopAgentBrowserPort,
   desktopFilesPort,
-  desktopPluginInstallerPort,
+  desktopPluginRecoveryPort,
   desktopSessionLogsPort,
   desktopTabsPort,
-  desktopTerminalPort,
 } from "./workspace.ts";

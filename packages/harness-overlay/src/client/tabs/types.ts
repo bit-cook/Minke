@@ -28,6 +28,8 @@ export interface TabsHost {
 /** Layout commands for a shell that owns the tab strip. False uses the local shell. */
 export interface TabsLayoutDelegate {
   readonly active: boolean;
+  /** A connected shell retains ownership while its session seat is unmounted. */
+  readonly connected?: boolean;
   open(tab: ManagedTab, activate: boolean): boolean;
   activate(id: string): boolean;
   place(id: string, targetId: string, edge: "before" | "after"): boolean;
@@ -40,6 +42,8 @@ export interface TabCreateContext {
 }
 
 export interface TabCreateOption {
+  /** Already offered by the native Start page. */
+  readonly nativeKind?: string;
   /** Stable identity across renderer updates; unique within the chooser. */
   readonly id: string;
   readonly label: string;
@@ -50,6 +54,11 @@ export interface TabCreateOption {
 
 export interface TabRenderer {
   readonly kind: string;
+  readonly nativeKind?: string;
+  readonly persistence?: {
+    save(tab: ManagedTab): unknown;
+    restore(tab: ManagedTab): void;
+  };
   createOptions?(): readonly TabCreateOption[];
   renderIcon(tab: ManagedTab): ReactNode;
   renderLeadingActions?(

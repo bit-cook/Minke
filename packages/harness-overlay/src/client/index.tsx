@@ -23,13 +23,13 @@ import { installTabs } from "./tabs/install.tsx";
 export const inject = [
   "connection",
   "remote",
-  "remote.pluginInventory",
   "slots",
   "locale",
   "theme",
   "uiWorkspace",
   "sessions",
   "layout",
+  "shortcuts",
 ];
 
 /** Compose Minke features through Harness's public services and slots. */

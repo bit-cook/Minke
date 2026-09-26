@@ -1,3 +1,4 @@
+import { mainSessionId, type HarnessSessionList } from "../core/sessions.ts";
 import { PanelHeaderIcon } from "../core/HeaderIcons.tsx";
 import {
   createElement,
@@ -21,8 +22,6 @@ import type { NativeTabsRuntime } from "./native/runtime.ts";
 
 export interface TabsHeaderActionProps {
   native?: NativeTabsRuntime;
-  /** Blank sessions have no DSH header corner to reopen a collapsed Sidebar. */
-  nativeOpener?: boolean;
   runtimes: Readonly<
     Record<TabsPanelPlacement, TabsRuntime>
   > & {
@@ -32,12 +31,7 @@ export interface TabsHeaderActionProps {
   t: TabsTranslate;
 }
 
-interface SessionListSelection {
-  readonly current: string | undefined;
-  readonly byId: Readonly<
-    Record<string, { readonly blank?: boolean } | undefined>
-  >;
-}
+
 
 const ignorePresentationChanges = () => () => {};
 const dockedPresentation = () => "docked" as const;
@@ -62,14 +56,13 @@ function useRightDrawerOpen(
 interface NewSessionTabsHeaderActionProps
   extends TabsHeaderActionProps {
   useSessions: <T>(
-    selector: (state: SessionListSelection) => T,
+    selector: (state: HarnessSessionList) => T,
   ) => T;
 }
 
 /** Toggle the independent bottom and right Tabs docks. */
 export function TabsHeaderAction({
   native,
-  nativeOpener = false,
   runtimes,
   presentation,
   t,
@@ -94,13 +87,13 @@ export function TabsHeaderAction({
       "aria-label": t("header.placement"),
     },
     (["bottom", "right"] as const).filter(placement =>
-      placement === "bottom" || !native?.active || (nativeOpener && !rightSnapshot.visible)
+      placement === "bottom" || !native?.active
     ).map((placement) => {
       const runtime = runtimes[placement];
       const active =
         placement === "bottom"
           ? bottomSnapshot.visible
-          : rightSnapshot.visible;
+          : native?.connected ? native.active && rightSnapshot.visible : rightSnapshot.visible;
       const label = t(
         placement === "bottom"
           ? active
@@ -119,7 +112,7 @@ export function TabsHeaderAction({
           "data-minke-tabs-placement": placement,
           "aria-label": label,
           title: label,
-          "aria-controls": placement === "right" && native?.active ? undefined : tabsPanelId(placement),
+          "aria-controls": placement === "right" && native?.connected ? undefined : tabsPanelId(placement),
           "aria-expanded": active,
           "aria-pressed": active,
           onClick: () => {
@@ -128,6 +121,10 @@ export function TabsHeaderAction({
               runtimes.toggleBottom !== undefined
             ) {
               runtimes.toggleBottom();
+              return;
+            }
+            if (placement === "right" && native?.connected) {
+              native.openNative("guide");
               return;
             }
             runtime.toggle();
@@ -139,7 +136,7 @@ export function TabsHeaderAction({
   );
 }
 
-/** Keep the Tabs toggles available while blank Session Header chrome is absent. */
+/** Blank Sessions omit utility slots; DSH still owns their Sidebar opener. */
 export function NewSessionTabsHeaderAction({
   native,
   runtimes,
@@ -149,14 +146,15 @@ export function NewSessionTabsHeaderAction({
 }: NewSessionTabsHeaderActionProps): ReactNode {
   useSyncExternalStore(native?.subscribe ?? ignorePresentationChanges, native?.getSnapshot ?? (() => 0), () => 0);
   const isNewSession = useSessions((state) => {
-    if (state.current === undefined) return true;
-    return state.byId[state.current]?.blank === true;
+    const sessionId = mainSessionId(state);
+    return sessionId === undefined || state.byId[sessionId]?.blank === true;
   });
   const rightDrawerOpen = useRightDrawerOpen(
     runtimes,
     presentation,
   );
-  if (!isNewSession || rightDrawerOpen) return null;
+  const nativeUnavailableOnPage = native?.connected && !native.active;
+  if ((!isNewSession && !nativeUnavailableOnPage) || rightDrawerOpen) return null;
 
   return createElement(
     "div",
@@ -168,7 +166,6 @@ export function NewSessionTabsHeaderAction({
     },
     createElement(TabsHeaderAction, {
       native,
-      nativeOpener: true,
       runtimes,
       presentation,
       t,

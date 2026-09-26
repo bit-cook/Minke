@@ -100,7 +100,9 @@ export class TabsRuntime {
       return existing.id;
     }
 
-    const id = `${this.#idPrefix}tab-${++this.#nextId}`;
+    let id: string;
+    do { id = `${this.#idPrefix}tab-${++this.#nextId}`; }
+    while (this.tab(id));
     const tab: ManagedTab<Payload> = {
       id,
       kind: input.kind,
@@ -110,7 +112,7 @@ export class TabsRuntime {
     };
     const activate =
       options.activate !== false || this.#snapshot.activeId === undefined;
-    const delegated = this.#layout?.active === true;
+    const delegated = (this.#layout?.connected ?? this.#layout?.active) === true;
     this.#commit(
       [...this.#snapshot.tabs, tab],
       delegated ? this.#snapshot.activeId : activate ? id : this.#snapshot.activeId,
@@ -236,6 +238,12 @@ export class TabsRuntime {
   }
 
   toggle(): void {
+    // A global page hides the native seat without changing its saved visibility.
+    // Reopen that seat before applying ordinary open/close toggle semantics.
+    if (this.#layout?.connected && !this.#layout.active) {
+      this.show();
+      return;
+    }
     if (this.#snapshot.visible) {
       this.hide();
     } else {
@@ -244,6 +252,8 @@ export class TabsRuntime {
   }
 
   syncPanel(): void {
+    // Restoring content must not navigate away from a global panel.
+    if (this.#layout?.connected && !this.#layout.active) return;
     if (this.#snapshot.visible) {
       if (this.#layout?.setVisible(true)) return;
       this.#host.showPanel();
@@ -252,6 +262,12 @@ export class TabsRuntime {
 
   tab(id: string): ManagedTab | undefined {
     return this.#snapshot.tabs.find((tab) => tab.id === id);
+  }
+
+  /** Restore content before attaching the native layout, keeping its saved identity. */
+  restore(tab: ManagedTab): void {
+    if (this.#disposed || this.tab(tab.id)) return;
+    this.#commit([...this.#snapshot.tabs, tab], this.#snapshot.activeId, this.#snapshot.visible);
   }
 
   dispose(): void {

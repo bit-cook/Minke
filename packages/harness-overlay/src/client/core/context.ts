@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { HarnessSessionList } from "./sessions.ts";
 
 export type HarnessThemePreference = "light" | "dark" | "system";
 export type HarnessColorScheme = "light" | "dark";
@@ -134,17 +135,13 @@ export interface HarnessClientContext {
       ): Promise<HarnessRpcResult>;
     };
   };
-  remote: {
-    pluginInventory: {
-      list(): Promise<HarnessRemoteResult>;
-    };
-  };
   effect(
     callback: () => void | (() => void),
     label: string,
   ): unknown;
   locale: LocaleService;
   layout: {
+    selectPanel(panelId: string | null): void;
     openRightbar(track: boolean, fullscreen: boolean): void;
     closeRightbar(): void;
     toggleSidebar(): void;
@@ -163,28 +160,21 @@ export interface HarnessClientContext {
   ): void;
   uiWorkspace: {
     startSession(workspaceId?: unknown): void;
+    openSession(sessionId: string): void;
   };
   sessions: {
+    retain(sessionId: string, options: { source: "minkeTerminal" }): {
+      readonly ready: Promise<unknown>;
+      release(): void;
+    };
     list: {
-      getSnapshot(): {
-        current: string | undefined;
-        byId: Readonly<
-          Record<
-            string,
-            {
-              readonly cwd?: string;
-              readonly title?: string;
-            } | undefined
-          >
-        >;
-      };
+      getSnapshot(): HarnessSessionList;
       subscribe(listener: () => void): () => void;
     };
     /**
-     * Resolve a use-and-discard session scope once the service is ready.
+     * Borrow a scope already retained by a view without extending its lifetime.
      * Missing scope support leaves browser handoffs retryable in the UI.
      */
     scope?(sessionId: string): unknown;
-    open(sessionId: string): void;
   };
 }

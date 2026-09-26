@@ -1,17 +1,8 @@
 import type { ReactNode } from "react";
 import {
-  ArrowLeft,
-  ArrowRight,
-  CircleAlert,
-  CircleCheck,
-  Download,
   House,
   Power,
   Puzzle,
-  RefreshCw,
-  Square,
-  SquareArrowOutUpRight,
-  Trash2,
   X,
 } from "@lucide/icons";
 import {
@@ -26,25 +17,10 @@ export function PluginIcon(
   );
 }
 
-export function PluginInstallIcon(): ReactNode {
-  return <LucideIcon icon={Download} size={14} />;
-}
-
-export function PluginUninstallIcon(): ReactNode {
-  return <LucideIcon icon={Trash2} size={14} />;
-}
-
 export function PluginPowerIcon(): ReactNode {
   return <LucideIcon icon={Power} size={14} />;
 }
 
-export function PluginSuccessIcon(): ReactNode {
-  return <LucideIcon icon={CircleCheck} size={15} />;
-}
-
-export function PluginWarningIcon(): ReactNode {
-  return <LucideIcon icon={CircleAlert} size={15} />;
-}
 
 export function PluginBrowserIcon(): ReactNode {
   return (
@@ -65,28 +41,8 @@ export function PluginClearIcon(): ReactNode {
   return <LucideIcon icon={X} size={13} />;
 }
 
-export function PluginBackIcon(): ReactNode {
-  return <LucideIcon icon={ArrowLeft} size={14} />;
-}
 
-export function PluginForwardIcon(): ReactNode {
-  return <LucideIcon icon={ArrowRight} size={14} />;
-}
 
 export function PluginHomeIcon(): ReactNode {
   return <LucideIcon icon={House} size={14} />;
-}
-
-export function PluginRefreshIcon(): ReactNode {
-  return <LucideIcon icon={RefreshCw} size={14} />;
-}
-
-export function PluginStopIcon(): ReactNode {
-  return <LucideIcon icon={Square} size={12} />;
-}
-
-export function PluginExternalIcon(): ReactNode {
-  return (
-    <LucideIcon icon={SquareArrowOutUpRight} size={14} />
-  );
 }

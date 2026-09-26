@@ -1,3 +1,4 @@
+import { PluginRecovery } from "./plugins/PluginRecovery.tsx";
 import type { ComponentType } from "react";
 import { installFilesDocumentPreview } from "./files/DocumentPreview.tsx";
 import type {
@@ -6,7 +7,7 @@ import type {
 import {
   desktopAgentBrowserPort,
   desktopAppUpdateSettingsStore,
-  desktopPluginInstallerPort,
+  desktopPluginRecoveryPort,
   desktopTerminalSettingsStore,
   desktopWebSearchSettingsStore,
 } from "../desktop/index.ts";
@@ -63,8 +64,6 @@ import {
 } from "./files/index.ts";
 import {
   createPluginTabRenderer,
-  createHarnessPluginInventoryPort,
-  createPluginLifecyclePort,
   installPluginStyles,
   pluginsEn,
   pluginsZh,
@@ -88,6 +87,10 @@ import {
   ResponsiveRightTabsHost,
 } from "./responsive-right-host.ts";
 import { installNativeTabs } from "./native/install.tsx";
+import { persistTabs, tabSessionStorage } from "./persistence.ts";
+import { createNativeTerminalRenderer } from "./terminal/native.tsx";
+import { connectTerminalAppearance } from "./terminal/appearance.ts";
+import type { DshTerminals, DshTerminalUI } from "./terminal/dsh.ts";
 import {
   createBottomTabsToggle,
 } from "./bottom-toggle.ts";
@@ -150,14 +153,8 @@ export function installTabs(
   const tabsPort = workspacePorts.tabs;
   const agentBrowserPort = desktopAgentBrowserPort();
   const filesPort = workspacePorts.files;
-  const terminalPort = workspacePorts.terminal;
-  const pluginInstallerPort = desktopPluginInstallerPort();
-  const pluginLifecyclePort = createPluginLifecyclePort(
-    pluginInstallerPort,
-    createHarnessPluginInventoryPort(
-      ctx.remote.pluginInventory,
-    ),
-  );
+  const pluginRecoveryPort = desktopPluginRecoveryPort();
+
   const terminalSettingsStore = desktopTerminalSettingsStore();
   const appUpdateSettingsStore =
     desktopAppUpdateSettingsStore();
@@ -220,7 +217,7 @@ export function installTabs(
   const terminalT = ctx.locale.bind<TerminalTabsLocaleKey>(
     TERMINAL_TABS_NAMESPACE,
   ) as TerminalTabsTranslate;
-  if (terminalPort.available) {
+  {
     ctx.effect(
       () =>
         ctx.locale.register(TERMINAL_TABS_NAMESPACE, {
@@ -355,7 +352,7 @@ export function installTabs(
       "minke-overlay: Browser History styles",
     );
   }
-  if (pluginLifecyclePort.available) {
+  if (pluginRecoveryPort.available || tabsPort.embeddedWebAvailable) {
     ctx.effect(
       () =>
         ctx.locale.register(PLUGINS_NAMESPACE, {
@@ -385,7 +382,7 @@ export function installTabs(
       "minke-overlay: Files tab styles",
     );
   }
-  if (terminalPort.available) {
+  {
     ctx.effect(
       () => installTerminalTabStyles(),
       "minke-overlay: Terminal tab styles",
@@ -429,7 +426,7 @@ export function installTabs(
   ) as PluginsTranslate;
   const browserCommentsComposerCapability:
     AgentBrowserComposerBridge =
-      createAgentBrowserComposerBridge(ctx.sessions);
+      createAgentBrowserComposerBridge(ctx.sessions, ctx.uiWorkspace);
   if (
     (
       agentBrowserPort.available ||
@@ -459,6 +456,7 @@ export function installTabs(
     browserCommentsComposerCapability,
   );
 
+  let openRightTerminal = (): void => {};
   const createTabsWorkspace = (
     tabs: TabsRuntime,
     placement: "bottom" | "right",
@@ -483,16 +481,11 @@ export function installTabs(
         })
       : undefined;
     const pluginTabs =
-      pluginLifecyclePort.available && webTabs !== undefined
-      ? new PluginTabsController(
-          tabs,
-          pluginLifecyclePort,
-          tabsPort,
-          webTabs,
-        )
+      webTabs !== undefined
+      ? new PluginTabsController(tabs, tabsPort, webTabs)
       : undefined;
-    const terminalTabs = terminalPort.available
-      ? new TerminalTabsController(tabs, terminalPort)
+    const terminalTabs = placement === "bottom"
+      ? new TerminalTabsController(tabs, ctx.sessions, () => ctx.uiWorkspace.startSession())
       : undefined;
     const browserHistoryTabs =
       agentBrowserPort.available && webTabs !== undefined
@@ -532,19 +525,20 @@ export function installTabs(
           renderers.register(
             createTerminalTabRenderer(
               terminalTabs,
-              terminalSettings,
-              codeThemes,
               terminalT,
             ),
           ),
         `minke-overlay: ${placement} Terminal tab renderer`,
       );
     }
+    if (placement === "right") {
+      ctx.effect(() => renderers.register(createNativeTerminalRenderer(() => openRightTerminal(), terminalT)), "minke-overlay: native Terminal action");
+    }
     if (pluginTabs !== undefined) {
       ctx.effect(
         () =>
           renderers.register(
-            createPluginTabRenderer(pluginTabs, pluginsT),
+            createPluginTabRenderer(pluginTabs, pluginsT, webT),
           ),
         `minke-overlay: ${placement} Plugins renderer`,
       );
@@ -632,17 +626,20 @@ export function installTabs(
     "bottom",
   );
   const bottomTerminalTabs = bottomWorkspace.terminalTabs;
+  ctx.inject?.(["webTerminals", "terminalUI"], scope => {
+    scope.effect(() => {
+      const service = scope.get("webTerminals") as DshTerminals;
+      const ui = scope.get("terminalUI") as DshTerminalUI;
+      const releaseAppearance = connectTerminalAppearance(ui, terminalSettings, codeThemes);
+      const releaseBottom = bottomTerminalTabs?.connect(service, ui);
+      return () => { releaseBottom?.(); releaseAppearance(); };
+    }, "minke-overlay: shared DSH terminals");
+  });
   const toggleBottom = createBottomTabsToggle({
     runtime: bottomTabs,
     ...(bottomTerminalTabs === undefined
       ? {}
       : { terminal: bottomTerminalTabs }),
-    currentCwd: () => {
-      const sessions = ctx.sessions.list.getSnapshot();
-      return sessions.current === undefined
-        ? undefined
-        : sessions.byId[sessions.current]?.cwd;
-    },
     defaultTitle: () => terminalT("terminal.tab.new"),
   });
   const runtimes: TabsRuntimes = Object.freeze({
@@ -659,9 +656,27 @@ export function installTabs(
       }),
     }),
   });
+  if (pluginRecoveryPort.available) {
+    ctx.slots.inject("plugins.item", () => ctx.slots.register({
+      name: "plugins.item",
+      id: "minke-plugin-recovery",
+      label: () => pluginsT("plugins.recovery.title"),
+      locale: PLUGINS_NAMESPACE,
+      inject: () => ({
+        recovery: pluginRecoveryPort,
+      }),
+    }, PluginRecovery as ComponentType<never>));
+  }
+  const contentStorage = tabSessionStorage();
+  const rightContent = contentStorage && persistTabs(rightTabs, rightWorkspace.renderers, "right", contentStorage);
+  const bottomContent = contentStorage && persistTabs(bottomTabs, bottomWorkspace.renderers, "bottom", contentStorage);
   const nativeTabs = installNativeTabs(ctx, rightTabs, rightWorkspace.renderers, createShortcuts);
+  openRightTerminal = () => { nativeTabs.openNative("terminal"); };
+  // Stop persistence before native/controller disposal closes the live instances.
+  if (rightContent) ctx.effect(() => rightContent.start(), "minke-overlay: right tab content");
+  if (bottomContent) ctx.effect(() => bottomContent.start(), "minke-overlay: bottom tab content");
   ctx.effect(() => {
-    const sync = (): void => { rightHost.setNativeActive(nativeTabs.active); };
+    const sync = (): void => { rightHost.setNativeActive(nativeTabs.connected); };
     sync();
     return nativeTabs.subscribe(sync);
   }, "minke-overlay: right Sidebar frame ownership");

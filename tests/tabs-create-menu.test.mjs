@@ -11,6 +11,7 @@ import {
 import {
   TabsCreateMenu,
 } from "@minke/harness-overlay/client/tabs/TabsCreateMenu.tsx";
+import { NativeTabsCreateMenu } from "@minke/harness-overlay/client/tabs/native/CreateMenu.tsx";
 import {
   TabsPanel,
 } from "@minke/harness-overlay/client/tabs/TabsPanel.tsx";
@@ -62,6 +63,51 @@ async function withBrowserGlobals(dom, callback) {
     }
   }
 }
+
+test("the native add picker groups live providers, excludes duplicate terminals, and targets its pane", async () => {
+  const dom = new JSDOM('<!doctype html><button id="add">+</button><div id="root"></div>', { pretendToBeVisual: true });
+  try {
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const anchor = document.getElementById("add");
+      const root = createRoot(document.getElementById("root"));
+      const calls = [];
+      const listeners = new Set();
+      let entries = [
+        { id: "new", providerId: "files", kind: "files", title: () => "Workspace files" },
+        { id: "new", providerId: "terminal", kind: "terminal", title: () => "Terminal" },
+        { id: "minke", providerId: "launcher", kind: "minke.launcher", title: () => "Minke" },
+      ];
+      const renderers = new TabRendererRegistry();
+      for (const kind of ["terminal", "browser"]) renderers.register({
+        kind, renderIcon: () => null, renderView: () => null,
+        createOptions: () => [{ id: kind, label: kind, icon: null, ...(kind === "terminal" ? { nativeKind: kind } : {}), create: context => calls.push(context) }],
+      });
+      const props = {
+        sessionId: "session-a", paneId: "pane-right", anchor,
+        onClose: () => calls.push("closed"),
+        sidebar: { mounted: { getSnapshot: () => "session-a" }, openTab: (...args) => calls.push(args) },
+        native: { createInPane: (sessionId, paneId, create) => { calls.push([sessionId, paneId]); create(); } },
+        registry: { guide: () => entries, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); } },
+        renderers, createShortcuts: { getSnapshot: () => 0, subscribe: () => () => {}, binding: () => undefined, platform: "apple" },
+        currentCwd: () => "/workspace", t: key => key,
+      };
+      try {
+        await act(async () => root.render(createElement(NativeTabsCreateMenu, props)));
+        assert.deepEqual([...document.querySelectorAll('[role="group"]')].map(group => group.getAttribute("aria-label")), ["DSH", "Minke"]);
+        assert.deepEqual([...document.querySelectorAll('[data-option]')].map(item => item.dataset.option), ["dsh:files:new", "dsh:terminal:new", "dsh:guide", "browser"]);
+        assert.equal(anchor.getAttribute("aria-expanded"), "true");
+        await act(async () => document.querySelector('[data-option="dsh:terminal:new"]').click());
+        assert.deepEqual(calls.splice(0), [["terminal", { paneId: "pane-right" }], "closed"]);
+        await act(async () => document.querySelector('[data-option="browser"]').click());
+        assert.deepEqual(calls.splice(0), [["session-a", "pane-right"], { cwd: "/workspace" }, "closed"]);
+        await act(async () => { entries = entries.filter(entry => entry.kind !== "terminal"); for (const notify of listeners) notify(); });
+        assert.equal(document.querySelector('[data-option="dsh:terminal:new"]'), null, "unloaded provider leaves the open menu");
+      } finally { await act(async () => root.unmount()); }
+      assert.equal(anchor.hasAttribute("aria-expanded"), false);
+    });
+  } finally { dom.window.close(); }
+});
 
 test("the populated TabsPanel mounts its new-tab menu after the plus button is clicked", async () => {
   const dom = new JSDOM(
@@ -146,7 +192,6 @@ test("the populated TabsPanel mounts its new-tab menu after the plus button is c
                 useSessions(selector) {
                   return selector({
                     byId: {},
-                    current: undefined,
                   });
                 },
               }),

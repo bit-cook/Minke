@@ -68,6 +68,18 @@ header:has([data-minke-tabs-layout-actions])
   --minke-tabs-layout-actions-clearance: 44px;
 }
 
+/* The blank Session's native header keeps its expand button: 12px from the
+   column edge, centered in the 30px title row below a 10px top inset. Leave
+   that 28px button and its 8px gap to DSH, then place our utilities beside it. */
+[data-shell-overlay]:has([data-minke-new-session-tabs-action][data-native-sidebar="closed"]) {
+  --minke-tabs-primary-row-top: 9px;
+  --minke-tabs-layout-actions-clearance: 84px;
+}
+
+[data-minke-new-session-tabs-action][data-native-sidebar="closed"] {
+  right: 48px;
+}
+
 [data-minke-new-session-tabs-action][data-native-sidebar],
 [data-shell-overlay]:has([data-native-sidebar]) [data-minke-new-session-remote-hub-action] {
   position: relative;

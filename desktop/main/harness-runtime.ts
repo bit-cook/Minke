@@ -11,10 +11,10 @@ import {
 } from "@lencx/minke-model-runtime/contract";
 import type {
   PluginManagementSettings,
-} from "@minke/harness-overlay/plugin-install-contract";
+} from "@minke/harness-overlay/plugin-recovery-contract";
 import {
   DEFAULT_PLUGIN_MANAGEMENT_SETTINGS,
-} from "@minke/harness-overlay/plugin-install-contract";
+} from "@minke/harness-overlay/plugin-recovery-contract";
 import {
   DEFAULT_WEB_SEARCH_SETTINGS,
   MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV,
@@ -142,11 +142,7 @@ export function harnessRuntimeEnvironment(
     "MINKE_PLUGIN_SAFE_MODE",
     pluginManagement.safeMode ? "1" : "0",
   );
-  setEnvironmentName(
-    environment,
-    "MINKE_DISABLED_PLUGINS",
-    JSON.stringify(pluginManagement.disabledPlugins),
-  );
+  deleteEnvironmentName(environment, "MINKE_DISABLED_PLUGINS");
   const webSearch =
     options.webSearch ?? DEFAULT_WEB_SEARCH_SETTINGS;
   setEnvironmentName(

@@ -192,6 +192,13 @@ export class AgentBrowserTabsController {
     return this.#initializePromise;
   }
 
+  restore(tab: ManagedTab): void {
+    const projection = parseAgentBrowserProjection(tab.payload);
+    this.#tabs.restore({ ...tab, payload: { ...projection, controlPending: false } });
+    this.#tabBySession.set(projection.sessionId, tab.id);
+    this.#sessionByTab.set(tab.id, projection.sessionId);
+  }
+
   getAnnotationSnapshot(
     tabId: string,
   ): AgentBrowserAnnotationSnapshot {

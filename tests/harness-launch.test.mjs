@@ -265,7 +265,6 @@ test("the desktop runtime passes both explicit local-model opt-ins", () => {
       MINKE_OLLAMA_ENABLED: "1",
       MINKE_OLLAMA_COMMAND: "/usr/local/bin/ollama",
       MINKE_PLUGIN_SAFE_MODE: "1",
-      MINKE_DISABLED_PLUGINS: "[\"broken-plugin\"]",
       [MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV]: "0",
       PRESERVED: "yes",
       DSH_HOME: "/data/harness",

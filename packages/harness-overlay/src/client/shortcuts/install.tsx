@@ -1,3 +1,4 @@
+import { mainSessionId } from "../core/sessions.ts";
 import type { ComponentType } from "react";
 import {
   DEFAULT_SHORTCUT_BINDINGS,
@@ -73,7 +74,7 @@ const TAB_CREATE_SHORTCUT_LABELS = Object.freeze({
   Record<TabCreateShortcutActionId, ShortcutLocaleKey>
 >);
 
-/** Build the New Session action against alpha.2's public navigation face. */
+/** Build the New Session menu/palette action against public DSH navigation. */
 export function createNewSessionShortcutAction(
   uiWorkspace: HarnessClientContext["uiWorkspace"],
   t: ShortcutTranslate,
@@ -165,11 +166,11 @@ export function installShortcuts(
     ),
   );
   const sessionNavigation = new SessionNavigationHistory((sessionId) => {
-    ctx.sessions.open(sessionId);
+    ctx.uiWorkspace.openSession(sessionId);
   });
   const observeSessionSelection = (): void => {
     sessionNavigation.observe(
-      ctx.sessions.list.getSnapshot().current,
+      mainSessionId(ctx.sessions.list.getSnapshot()),
     );
     commandPalette.refresh();
   };
@@ -379,12 +380,12 @@ export function installShortcuts(
             order: 40,
             keywords: () => [paletteT("keywords.exportSession")],
             disabledReason: () =>
-              ctx.sessions.list.getSnapshot().current === undefined
+              mainSessionId(ctx.sessions.list.getSnapshot()) === undefined
                 ? paletteT("disabled.activeSession")
                 : undefined,
           },
           run: () => {
-            const sessionId = ctx.sessions.list.getSnapshot().current;
+            const sessionId = mainSessionId(ctx.sessions.list.getSnapshot());
             if (sessionId === undefined) return;
             void sessionLogsPort
               .export(sessionId)
@@ -411,9 +412,8 @@ export function installShortcuts(
       return;
     }
     const sessions = ctx.sessions.list.getSnapshot();
-    const cwd = sessions.current === undefined
-      ? undefined
-      : sessions.byId[sessions.current]?.cwd;
+    const sessionId = mainSessionId(sessions);
+    const cwd = sessionId === undefined ? undefined : sessions.byId[sessionId]?.cwd;
     creator.create({ cwd });
   };
   if (tabsRuntimes !== undefined) {

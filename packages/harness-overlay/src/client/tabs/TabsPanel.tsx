@@ -1,3 +1,4 @@
+import { mainSessionId, type HarnessSessionList } from "../core/sessions.ts";
 import {
   useEffect,
   useRef,
@@ -50,12 +51,7 @@ import type { NativeTabsRuntime } from "./native/runtime.ts";
 import { NativeTabViewport, NativeTabsContent } from "./native/views.tsx";
 import { FilesDocumentContext, type FilesDocumentRuntime } from "./files/DocumentPreview.tsx";
 
-interface SessionListSelection {
-  current: string | undefined;
-  byId: Readonly<
-    Record<string, { readonly cwd?: string } | undefined>
-  >;
-}
+
 
 interface DropTarget {
   readonly id: string;
@@ -84,7 +80,7 @@ export interface TabsPanelProps {
   presentation?: RightTabsPresentationPort;
   setRightTrackWidth?: (width: number) => void;
   useSessions: <T>(
-    selector: (state: SessionListSelection) => T,
+    selector: (state: HarnessSessionList) => T,
   ) => T;
   t: TabsTranslate;
 }
@@ -134,7 +130,9 @@ export function TabsPanel({
     runtime.getSnapshot,
   );
   useSyncExternalStore(native?.subscribe ?? ignorePresentationChanges, native?.getSnapshot ?? (() => 0), () => 0);
-  const snapshot = native?.active ? { ...contentSnapshot, visible: false } : contentSnapshot;
+  // A hidden Session seat (for example on Plugins) does not relinquish DSH's
+  // Sidebar ownership. Keep content alive without reviving the legacy shell.
+  const snapshot = native?.connected ? { ...contentSnapshot, visible: false } : contentSnapshot;
   useSyncExternalStore(
     renderers.subscribe,
     renderers.getSnapshot,
@@ -153,9 +151,9 @@ export function TabsPanel({
   const drawer =
     placement === "right" &&
     responsivePresentation === "drawer";
-  const sessionId = useSessions((state) => state.current);
+  const sessionId = useSessions(mainSessionId);
   const cwd = useSessions((state) => {
-    const current = state.current;
+    const current = mainSessionId(state);
     return current === undefined
       ? undefined
       : state.byId[current]?.cwd;
@@ -185,7 +183,7 @@ export function TabsPanel({
   const hasTabs = snapshot.tabs.length > 0;
   const createMenuId = `${tabsPanelId(placement)}-create-menu`;
   const showCreateChooser = !hasTabs;
-  const createOptions = renderers.creators();
+  const createOptions = renderers.creators().filter(option => !option.nativeKind);
   const canCreateTabs = createOptions.length > 0;
   const hasToolbar =
     !showCreateChooser &&
@@ -638,7 +636,7 @@ export function TabsPanel({
               >
                   <button
                     type="button"
-                    id={native?.active ? undefined : `minke-tab-${tab.id}`}
+                    id={native?.connected ? undefined : `minke-tab-${tab.id}`}
                     className="minke-tab__target"
                     role="tab"
                     aria-selected={active}
@@ -786,7 +784,7 @@ export function TabsPanel({
           />
         )}
         {hasTabs && snapshot.tabs.map((tab) => {
-          if (native) return <NativeTabViewport key={tab.id} native={native} id={tab.id} visible={!native.active && snapshot.visible && tab.id === snapshot.activeId} />;
+          if (native) return <NativeTabViewport key={tab.id} native={native} id={tab.id} visible={!native.connected && snapshot.visible && tab.id === snapshot.activeId} />;
           const renderer = renderers.get(tab.kind);
           const active = tab.id === snapshot.activeId;
           return renderer === undefined

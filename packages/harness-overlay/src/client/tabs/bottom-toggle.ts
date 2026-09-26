@@ -4,13 +4,11 @@ import type {
 
 export interface BottomTabsDefaultCreator {
   create(
-    cwd: string | undefined,
     title: string,
   ): string | undefined;
 }
 
 export interface BottomTabsToggleOptions {
-  readonly currentCwd: () => string | undefined;
   readonly defaultTitle: () => string;
   readonly runtime: TabsRuntime;
   readonly terminal?: BottomTabsDefaultCreator;
@@ -21,7 +19,6 @@ export interface BottomTabsToggleOptions {
  * Existing tabs toggle normally; an empty workspace starts a Terminal.
  */
 export function createBottomTabsToggle({
-  currentCwd,
   defaultTitle,
   runtime,
   terminal,
@@ -34,7 +31,6 @@ export function createBottomTabsToggle({
     }
     if (snapshot.tabs.length === 0 && terminal !== undefined) {
       const tabId = terminal.create(
-        currentCwd(),
         defaultTitle(),
       );
       if (tabId !== undefined) return;

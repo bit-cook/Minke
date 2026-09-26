@@ -53,7 +53,7 @@ function siteLabel(tab: ManagedTab): string | undefined {
   }
 }
 
-function leadingActions(
+export function renderWebNavigationActions(
   tab: ManagedTab,
   t: WebTabsTranslate,
   controller: WebTabsController,
@@ -187,6 +187,10 @@ export function createWebTabRenderer(
   };
   return {
     kind: "web",
+    persistence: {
+      save: tab => isWebTab(tab) ? { url: tab.payload.url } : undefined,
+      restore: tab => controller.restore(tab),
+    },
     createOptions: () => [
       {
         id: "browser",
@@ -203,7 +207,7 @@ export function createWebTabRenderer(
       />
     ),
     renderLeadingActions: (tab) =>
-      leadingActions(tab, t, controller),
+      renderWebNavigationActions(tab, t, controller),
     renderTrailingActions: (tab) => (
       <>
         <WebAnnotationActions

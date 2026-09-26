@@ -9,22 +9,32 @@ import {
   type NativeTabSurface,
 } from "./contract.ts";
 
+type PendingIntent =
+  | { type: "native"; kind: string }
+  | { type: "focus"; id: string }
+  | { type: "visible"; visible: boolean };
+
 /** Joins Minke content instances to DSH's authoritative, per-session layouts. */
 export class NativeTabsRuntime implements TabsLayoutDelegate {
   readonly #tabs: TabsRuntime;
   readonly #renderers: TabRendererRegistry;
+  readonly #activateConversation: (() => void) | undefined;
   readonly #listeners = new Set<() => void>();
   readonly #viewports = new Map<string, Set<HTMLElement>>();
   #connection: NativeTabsConnection | undefined;
+  #sidebar: NativeSidebarService | undefined;
   #sessionId: string | undefined;
   #surfaces = new Map<string, NativeTabSurface>();
   #revision = 0;
   #syncing = false;
   #createTarget: { replaceTab?: string; paneId?: string } | undefined;
+  #pending: PendingIntent[] = [];
+  #activationRequested = false;
 
-  constructor(tabs: TabsRuntime, renderers: TabRendererRegistry) {
+  constructor(tabs: TabsRuntime, renderers: TabRendererRegistry, activateConversation?: () => void) {
     this.#tabs = tabs;
     this.#renderers = renderers;
+    this.#activateConversation = activateConversation;
   }
 
   readonly getSnapshot = (): number => this.#revision;
@@ -32,8 +42,20 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
     this.#listeners.add(listener);
     return () => { this.#listeners.delete(listener); };
   };
-  get active(): boolean { return this.#sessionId !== undefined; }
+  get connected(): boolean { return this.#connection !== undefined; }
+  get active(): boolean {
+    return this.#sessionId !== undefined && this.#sidebar?.mounted.getSnapshot() === this.#sessionId;
+  }
   get sessionId(): string | undefined { return this.#sessionId; }
+
+  openNative(kind: string): string | undefined {
+    if (!this.#connection) return undefined;
+    this.#sync();
+    if (this.active) return this.#sidebar?.openTab(kind);
+    this.#pending.push({ type: "native", kind });
+    this.#requestActivation();
+    return undefined;
+  }
 
   connect(sidebar: NativeSidebarService): () => void {
     const connection = sidebar.connectMinkeTabs({
@@ -45,16 +67,26 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
       },
     });
     this.#connection = connection;
+    this.#sidebar = sidebar;
+    const releaseMounted = sidebar.mounted.subscribe(() => {
+      // Finish the native seat transition before projecting its layout.
+      queueMicrotask(() => { if (this.#connection === connection) this.#sync(); });
+    });
     const releaseLayout = this.#tabs.connectLayout(this);
     this.#sync();
+    this.#emit();
     return () => {
+      if (this.#connection !== connection) return;
+      this.#pending = [];
+      this.#activationRequested = false;
       // Extension unload/HMR must not leave records that can later alias a
       // newly minted Minke instance with the same local id.
       for (const tab of this.#tabs.getSnapshot().tabs) connection.close(nativeContentId(tab.id));
+      releaseMounted();
       releaseLayout();
       connection.dispose();
-      if (this.#connection !== connection) return;
       this.#connection = undefined;
+      this.#sidebar = undefined;
       this.#sessionId = undefined;
       this.#surfaces.clear();
       this.#emit();
@@ -64,7 +96,16 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
   open(tab: ManagedTab, activate: boolean): boolean {
     const connection = this.#connection;
     const sessionId = this.#sessionId;
-    if (!connection || !sessionId) return false;
+    if (!connection) return false;
+    if (!this.active || !sessionId) {
+      // Background hydration/opening only supplies content. Foreground intent
+      // waits for DSH's Conversation seat instead of reviving a second shell.
+      if (activate) {
+        this.#pending.push({ type: "focus", id: tab.id }, { type: "visible", visible: true });
+        this.#requestActivation();
+      }
+      return true;
+    }
     connection.open(sessionId, {
       kind: `minke.${tab.kind}`,
       contentId: nativeContentId(tab.id),
@@ -85,15 +126,10 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
     finally { this.#createTarget = previous; }
   }
 
-  canCreateIn(sessionId: string, paneId: string): boolean {
-    const snapshot = this.#connection?.read();
-    return snapshot?.sessionId === sessionId && snapshot.surfaces.some(surface =>
-      surface.sessionId === sessionId && surface.expanded && surface.paneIds.includes(paneId));
-  }
-
-  /** A menu creates in its originating pane without replacing the visible tab. */
+  /** The add menu's pane stays authoritative even if another pane gains focus. */
   createInPane(sessionId: string, paneId: string, create: () => void): void {
-    if (!this.canCreateIn(sessionId, paneId)) return;
+    this.#sync();
+    if (!this.active || sessionId !== this.#sessionId || !this.#surfaces.get(sessionId)?.paneIds.includes(paneId)) return;
     const previous = this.#createTarget;
     this.#createTarget = { paneId };
     try { create(); }
@@ -101,6 +137,12 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
   }
 
   activate(id: string): boolean {
+    if (!this.#connection) return false;
+    if (!this.active) {
+      this.#pending.push({ type: "focus", id });
+      this.#requestActivation();
+      return true;
+    }
     const record = this.#record(id);
     if (!this.#sessionId || !this.#connection || !record) return false;
     this.#connection.focus(this.#sessionId, record.id);
@@ -109,7 +151,8 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
   }
 
   place(id: string, targetId: string, edge: "before" | "after"): boolean {
-    if (!this.#sessionId || !this.#connection) return false;
+    if (!this.#connection) return false;
+    if (!this.active || !this.#sessionId) return true;
     const tab = this.#record(id);
     const target = this.#record(targetId);
     if (tab && target) this.#connection.place(this.#sessionId, tab.id, target.id, edge);
@@ -119,11 +162,16 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
 
   close(id: string): boolean {
     this.#connection?.close(nativeContentId(id));
-    return this.active;
+    return this.connected;
   }
 
   setVisible(visible: boolean): boolean {
-    if (!this.#sessionId || !this.#connection) return false;
+    if (!this.#connection) return false;
+    if (!this.active || !this.#sessionId) {
+      if (visible || this.#pending.length > 0) this.#pending.push({ type: "visible", visible });
+      if (visible) this.#requestActivation();
+      return true;
+    }
     // Calling the native action with an unchanged value would still publish a store commit.
     if (this.#surfaces.get(this.#sessionId)?.expanded !== visible) {
       this.#connection.setExpanded(this.#sessionId, visible);
@@ -154,13 +202,19 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
       this.#surfaces.get(this.#sessionId)?.tabs.find(tab => tab.contentId === nativeContentId(id));
   }
 
+  #requestActivation(): void {
+    if (this.#activationRequested) return;
+    this.#activationRequested = true;
+    this.#activateConversation?.();
+  }
+
   #sync(): void {
     const connection = this.#connection;
     if (!connection || this.#syncing) return;
     this.#syncing = true;
     try {
       let snapshot = connection.read();
-      const current = snapshot.surfaces.find(surface => surface.sessionId === snapshot.sessionId);
+      const current = snapshot.surfaces.find(surface => surface.sessionId === this.#sidebar?.mounted.getSnapshot());
       const sessionId = current?.sessionId;
       const changedSession = this.#sessionId !== sessionId;
       const carry = this.#tabs.getSnapshot();
@@ -190,6 +244,18 @@ export class NativeTabsRuntime implements TabsLayoutDelegate {
           const surface = connection.read().surfaces.find(value => value.sessionId === sessionId);
           const tab = surface?.tabs.find(record => record.contentId === nativeContentId(carry.activeId!));
           if (tab) connection.focus(sessionId, tab.id);
+        }
+        this.#activationRequested = false;
+        // Content is mapped first so a deferred focus can use the native id.
+        // Preserve request order when native and custom opens were interleaved.
+        for (const intent of this.#pending.splice(0)) {
+          if (intent.type === "native") this.#sidebar?.openTab(intent.kind);
+          else if (intent.type === "visible") connection.setExpanded(sessionId, intent.visible);
+          else {
+            const surface = connection.read().surfaces.find(value => value.sessionId === sessionId);
+            const tab = surface?.tabs.find(record => record.contentId === nativeContentId(intent.id));
+            if (tab) connection.focus(sessionId, tab.id);
+          }
         }
       }
       snapshot = connection.read();

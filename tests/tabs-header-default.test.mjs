@@ -79,16 +79,15 @@ test("the empty bottom Tabs action opens a Terminal directly", async () => {
       let cwd = "/workspace/one";
       const toggleBottom = createBottomTabsToggle({
         runtime: bottom,
-        currentCwd: () => cwd,
         defaultTitle: () => "Terminal",
         terminal: {
-          create(currentCwd, title) {
+          create(title) {
             defaultOpens += 1;
             return bottom.open({
               kind: "terminal",
               key: `terminal-${String(defaultOpens)}`,
               title,
-              payload: { cwd: currentCwd },
+              payload: { cwd },
             });
           },
         },
@@ -155,30 +154,68 @@ test("the empty bottom Tabs action opens a Terminal directly", async () => {
   }
 });
 
-test("blank Sessions expose the native opener only while collapsed", async () => {
+test("blank Sessions leave the Sidebar opener to DSH in both open and collapsed states", async () => {
   const dom = new JSDOM('<!doctype html><div id="root"></div>', { pretendToBeVisual: true });
   try {
     await withBrowserGlobals(dom, async () => {
       const { createRoot } = await import("react-dom/client");
       const bottom = new TabsRuntime({ showPanel() {}, hidePanel() {} });
       const right = new TabsRuntime({ showPanel() {}, hidePanel() {} });
-      const native = { active: true, subscribe: () => () => {}, getSnapshot: () => 0 };
+      const native = { connected: true, active: true, subscribe: () => () => {}, getSnapshot: () => 0 };
       const root = createRoot(dom.window.document.getElementById("root"));
       const rightButton = () => dom.window.document.querySelector('[data-minke-tabs-placement="right"]');
       try {
         await act(async () => root.render(createElement(NewSessionTabsHeaderAction, {
           native, runtimes: { bottom, right }, t: key => tabsEn[key],
-          useSessions: selector => selector({ current: "blank", byId: { blank: { blank: true } } }),
+          useSessions: selector => selector({ byId: { blank: { blank: true, retainedBy: { mainView: 1 } } } }),
         })));
-        assert.ok(rightButton());
-        assert.equal(rightButton().getAttribute("aria-controls"), null, "native controls cannot target the hidden fallback panel");
-        await act(async () => rightButton().click());
+        assert.equal(rightButton(), null, "DSH already renders an expand button in the blank Session header");
+        await act(async () => right.show());
         assert.equal(right.getSnapshot().visible, true);
         assert.equal(rightButton(), null, "DSH owns the expanded Sidebar's collapse control");
         assert.equal(dom.window.document.querySelector('[data-minke-new-session-tabs-action]').dataset.nativeSidebar, "open");
         assert.ok(dom.window.document.querySelector('[data-minke-tabs-placement="bottom"]'));
         await act(async () => right.hide());
-        assert.ok(rightButton(), "a blank Session must be able to reopen the native Sidebar");
+        assert.equal(rightButton(), null, "collapsing the Sidebar must not add a duplicate opener");
+      } finally {
+        await act(async () => root.unmount());
+        bottom.dispose();
+        right.dispose();
+      }
+    });
+  } finally { dom.window.close(); }
+});
+
+test("global pages reopen DSH Start even when the retained Session is not blank", async () => {
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', { pretendToBeVisual: true });
+  try {
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const bottom = new TabsRuntime({ showPanel() {}, hidePanel() {} });
+      const hostEvents = [];
+      const right = new TabsRuntime({ showPanel() { hostEvents.push("show"); }, hidePanel() { hostEvents.push("hide"); } });
+      right.show();
+      hostEvents.length = 0;
+      const opened = [];
+      const native = {
+        connected: true, active: false, subscribe: () => () => {}, getSnapshot: () => 0,
+        openNative(kind) { opened.push(kind); },
+      };
+      const root = createRoot(dom.window.document.getElementById("root"));
+      try {
+        for (const blank of [false, true]) {
+          await act(async () => root.render(createElement(NewSessionTabsHeaderAction, {
+            native, runtimes: { bottom, right }, t: key => tabsEn[key],
+            useSessions: selector => selector({ byId: { retained: { blank, retainedBy: { mainView: 1 } } } }),
+          })));
+          const opener = dom.window.document.querySelector('[data-minke-tabs-placement="right"]');
+          assert.ok(opener, "a non-conversation page keeps an entry back to the native Sidebar");
+          assert.equal(opener.getAttribute("aria-expanded"), "false", "a hidden native seat is not an open legacy panel");
+          assert.equal(opener.getAttribute("aria-controls"), null, "the native opener must not target the hidden fallback panel");
+          await act(async () => opener.click());
+        }
+        assert.deepEqual(opened, ["guide", "guide"]);
+        assert.deepEqual(hostEvents, [], "opening DSH must not toggle the legacy host");
       } finally {
         await act(async () => root.unmount());
         bottom.dispose();

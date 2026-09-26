@@ -12,11 +12,6 @@ import {
   FileManagerRuntime,
 } from "./host/file-manager.ts";
 import {
-  defaultHostTerminalShell,
-  HostTerminalRuntime,
-  loadHostTerminalPty,
-} from "./host/terminal.ts";
-import {
   installMinkePwaHost,
   type PwaWebServer,
 } from "./host/pwa.ts";
@@ -51,13 +46,6 @@ import {
   parseFileManagerPreviewRequest,
   parseFileManagerWriteRequest,
 } from "./tabs/files-contract.ts";
-import {
-  parseTerminalCreateRequest,
-  parseTerminalReadRequest,
-  parseTerminalResizeRequest,
-  parseTerminalSessionId,
-  parseTerminalWriteRequest,
-} from "./tabs/terminal-contract.ts";
 
 export const name = "minke-host";
 export const inject = [
@@ -313,8 +301,8 @@ function failure(error: unknown): HostRpcResult {
 
 /**
  * Mount portable Minke capabilities on DSH's trusted browser transport seam.
- * Browser Files and Terminal adapters keep native-only Web views and OS path
- * opening behind Electron preload.
+ * Files use this transport; terminals use DSH. Native Web views and OS path
+ * opening remain behind Electron preload.
  */
 export function apply(
   ctx: MinkeHostContext,
@@ -374,18 +362,6 @@ export function apply(
     openPath: async () =>
       "native path opening is unavailable through Minke Host",
   });
-  const terminalShell = defaultHostTerminalShell();
-  const terminal = new HostTerminalRuntime({
-    pty: loadHostTerminalPty,
-    shell: terminalShell.shell,
-    shellArgs: terminalShell.args,
-    defaultCwd: rootPath,
-    environment: process.env,
-  });
-  ctx.effect(
-    () => () => terminal.dispose(),
-    "minke-host: Terminal runtime",
-  );
   ctx.effect(
     () => installMinkePwaHost(ctx.webServer),
     "minke-host: PWA resources",
@@ -404,11 +380,6 @@ export function apply(
       embeddedWeb: false,
       state: "client",
     },
-    terminal: {
-      available: true,
-      resize: true,
-      transport: "long-poll",
-    },
   };
   const handlers: HostRpcHandlers = {
     capabilities: () => capabilities,
@@ -420,25 +391,6 @@ export function apply(
       files.preview(parseFileManagerPreviewRequest(payload)),
     "files.write": (payload) =>
       files.write(parseFileManagerWriteRequest(payload)),
-    "terminal.close": (payload) => {
-      terminal.close(parseTerminalSessionId(payload));
-      return null;
-    },
-    "terminal.create": (payload) =>
-      terminal.create(parseTerminalCreateRequest(payload)),
-    "terminal.read": (payload, signal) =>
-      terminal.read(
-        parseTerminalReadRequest(payload),
-        signal,
-      ),
-    "terminal.resize": (payload) => {
-      terminal.resize(parseTerminalResizeRequest(payload));
-      return null;
-    },
-    "terminal.write": (payload) => {
-      terminal.write(parseTerminalWriteRequest(payload));
-      return null;
-    },
   };
 
   ctx.connection.rpc.handle(

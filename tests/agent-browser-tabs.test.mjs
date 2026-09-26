@@ -393,6 +393,26 @@ function fixture(initial = [], dependencies) {
   };
 }
 
+test("restoring Agent Browser content reuses its identity and reconciles with the host", async () => {
+  const first = fixture([projection("session-1")]);
+  await first.controller.initialize();
+  const tab = first.tabs.getSnapshot().tabs[0];
+  const renderer = createAgentBrowserTabRenderer(first.controller, translate);
+  const saved = { ...tab, payload: renderer.persistence.save(tab) };
+  assert.equal("controlPending" in saved.payload, false, "client-only fields must not enter the strict host projection");
+  const restored = fixture([projection("session-1", { title: "Updated host title" })]);
+  restored.controller.restore(JSON.parse(JSON.stringify(saved)));
+  await restored.controller.initialize();
+  assert.equal(restored.tabs.getSnapshot().tabs.length, 1);
+  assert.equal(restored.tabs.getSnapshot().tabs[0].id, tab.id);
+  assert.equal(restored.tabs.tab(tab.id).title, "Updated host title");
+  assert.equal(restored.tabs.tab(tab.id).payload.controlPending, false);
+  restored.publish([]);
+  assert.equal(restored.tabs.getSnapshot().tabs.length, 0, "host-closed browser sessions cannot resurrect from storage");
+  first.controller.dispose();
+  restored.controller.dispose();
+});
+
 test("Agent Browser projections create independent agent-web tabs", async () => {
   const first = projection("session-1");
   const second = projection("session-2", {

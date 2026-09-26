@@ -236,7 +236,7 @@ async function exchangeBrowserAuthentication(endpoint) {
   const setCookie = exchange.headers.get("set-cookie");
   if (
     exchange.status !== 303 ||
-    exchange.headers.get("location") !== "/" ||
+    exchange.headers.get("location") !== "./" ||
     setCookie === null
   ) {
     throw new Error(
@@ -369,14 +369,11 @@ async function fetchMinkeHostCapabilities(server) {
     {},
   );
   if (
-    capabilities?.protocolVersion !== 2 ||
+    capabilities?.protocolVersion !== 3 ||
     capabilities.files?.available !== true ||
     capabilities.files?.write !== true ||
     capabilities.tabs?.available !== true ||
-    capabilities.tabs?.embeddedWeb !== false ||
-    capabilities.terminal?.available !== true ||
-    capabilities.terminal?.resize !== true ||
-    capabilities.terminal?.transport !== "long-poll"
+    capabilities.tabs?.embeddedWeb !== false
   ) {
     throw new Error(
       `Minke Host returned unexpected capabilities: ${JSON.stringify(capabilities)}`,
@@ -431,77 +428,16 @@ async function smokeMinkePwa(server) {
   }
 }
 
-async function smokeMinkeHostTerminal(server) {
-  const marker = "minke-host-terminal-smoke";
-  const created = await callMinkeHost(
-    server,
-    "terminal.create",
-    {
-      cwd: projectRoot,
-      cols: 80,
-      rows: 24,
-    },
+async function smokeDshTerminal(server) {
+  const response = await server.fetch(
+    `${server.baseUrl}/smoke/terminal`, { method: "POST" },
   );
-  const sessionId = created?.sessionId;
-  if (typeof sessionId !== "string" || sessionId === "") {
-    throw new Error(
-      `Minke Host returned an invalid Terminal session: ${JSON.stringify(created)}`,
-    );
+  if (!response.ok) {
+    throw new Error(`DSH Terminal smoke failed (${response.status}): ${await response.text()}`);
   }
-  let cursor = 0;
-  let output = "";
-  let exited = false;
-  try {
-    await callMinkeHost(server, "terminal.resize", {
-      sessionId,
-      cols: 100,
-      rows: 30,
-    });
-    await callMinkeHost(server, "terminal.write", {
-      sessionId,
-      data:
-        process.platform === "win32"
-          ? `echo ${marker}\r\nexit\r\n`
-          : `printf '${marker}\\n'; exit\r`,
-    });
-    const deadline = Date.now() + 15_000;
-    while (Date.now() < deadline && !exited) {
-      const result = await callMinkeHost(
-        server,
-        "terminal.read",
-        {
-          sessionId,
-          cursor,
-          waitMs: 1_000,
-        },
-      );
-      if (
-        typeof result?.cursor !== "number" ||
-        !Array.isArray(result.events) ||
-        result.truncated === true
-      ) {
-        throw new Error(
-          `Minke Host returned invalid Terminal output: ${JSON.stringify(result)}`,
-        );
-      }
-      cursor = result.cursor;
-      for (const event of result.events) {
-        if (event?.type === "data") output += event.data;
-        if (event?.type === "exit") exited = true;
-      }
-      if (result.done === true) exited = true;
-    }
-  } finally {
-    await callMinkeHost(
-      server,
-      "terminal.close",
-      sessionId,
-    ).catch(() => {});
-  }
-  if (!output.includes(marker) || !exited) {
-    throw new Error(
-      `Minke Host Terminal smoke failed: ${JSON.stringify({ output, exited })}`,
-    );
+  const result = await response.json();
+  if (result?.command !== true || result.resize !== true || result.exit !== true || result.close !== true) {
+    throw new Error(`DSH Terminal smoke returned an incomplete result: ${JSON.stringify(result)}`);
   }
 }
 
@@ -523,6 +459,19 @@ async function waitForChangedRevision(server, pluginId, initialRevision) {
   throw new Error(
     `external Web plugin revision did not change within ${String(hmrTimeoutMs)} ms`,
   );
+}
+
+async function waitForModelProvider(server, provider) {
+  const deadline = Date.now() + 10_000;
+  let state;
+  while (Date.now() < deadline) {
+    const response = await server.fetch(`${server.baseUrl}/smoke/model-settings`);
+    if (!response.ok) throw new Error(`native model settings unavailable (${response.status})`);
+    state = await response.json();
+    if (state.descriptor?.ns === "llm-pi-ai" && state.providers?.includes(provider)) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error(`native model settings did not publish ${provider}: ${JSON.stringify(state)}`);
 }
 
 async function startServer(
@@ -728,6 +677,11 @@ async function main() {
       ),
     ]);
 
+    await cp(
+      join(verified.harnessRoot, "packages", "bundle", "web-app", "tests", "fixtures", "document-conversion.docx"),
+      join(fixtureCopy, "document-conversion.docx"),
+    );
+
     // Sensitivity check: the stock upstream installer must fail when our pnpm
     // adapter is removed from PATH. This proves the positive check exercises
     // the desktop adapter rather than an ambient developer installation.
@@ -905,6 +859,15 @@ async function main() {
       );
     }
 
+    const legacyModelSettings = JSON.stringify({
+      "llm-pi-ai": { providers: {
+        "minke-smoke-imported": {
+          api: "openai-completions", baseURL: "http://127.0.0.1:1/v1",
+          models: [{ id: "fixture", contextWindow: 8192, maxTokens: 1024 }],
+        },
+      } },
+    });
+    await writeFile(join(harnessHome, "settings.yaml"), legacyModelSettings, "utf8");
     server = await startServer(
       executable("dsh"),
       [
@@ -944,11 +907,30 @@ async function main() {
         `isolated plugin failure is absent from plugin inventory: ${JSON.stringify(inventory)}`,
       );
     }
+    if (!inventory.entries.some(entry =>
+      entry.moduleName === "@lencx/minke-model-runtime/dsh" && entry.fiberPhase === "active")) {
+      throw new Error("the product composition did not activate Minke's local model runtime");
+    }
     const manifest = await fetchManifest(server);
+    await waitForModelProvider(server, "minke-smoke-imported");
+    if (await readFile(join(harnessHome, "settings.yaml.imported"), "utf8") !== legacyModelSettings) {
+      throw new Error("legacy model settings migration did not retain its original document");
+    }
+    const modelUpdate = await server.fetch(`${server.baseUrl}/smoke/model-settings`, { method: "POST" });
+    if (!modelUpdate.ok) throw new Error(`native model settings edit failed (${modelUpdate.status})`);
+    await waitForModelProvider(server, "minke-smoke-live");
     const minkeCapabilities = await fetchMinkeHostCapabilities(server);
     await smokeMinkePwa(server);
     await smokeFeedbackPolicy(server);
-    await smokeMinkeHostTerminal(server);
+    await smokeDshTerminal(server);
+    const officePreview = await server.fetch(`${server.baseUrl}/smoke/office-preview`);
+    const officePdf = Buffer.from(await officePreview.arrayBuffer());
+    if (!officePreview.ok ||
+      officePreview.headers.get("content-type") !== "application/pdf" ||
+      officePdf.subarray(0, 5).toString() !== "%PDF-" ||
+      !officePdf.subarray(-32).includes(Buffer.from("%%EOF"))) {
+      throw new Error(`bundled Office preview did not produce a complete PDF (${officePreview.status})`);
+    }
     const productRow = manifest.entries.find(
       (entry) => entry.id === productPackageName,
     );
@@ -1005,6 +987,12 @@ async function main() {
     }
 
     const externalPluginUrl = server.baseUrl;
+    const disableResponse = await server.fetch(`${server.baseUrl}/smoke/disable-failed-plugin`, { method: "POST" });
+    const disabled = disableResponse.ok ? await disableResponse.json() : undefined;
+    const disabledBundle = disabled?.bundles?.find(bundle => bundle.name === failingPluginId);
+    if (disabled?.change?.application !== "applied" || disabledBundle?.enabled !== false || disabledBundle?.installed !== true) {
+      throw new Error("native PluginManager must disable a bundle live and retain it in the installed list");
+    }
     for (const safeMode of [false, true]) {
       await stopServer(server.child);
       server = undefined;
@@ -1014,7 +1002,6 @@ async function main() {
       ], {
         ...env,
         MINKE_PLUGIN_SAFE_MODE: safeMode ? "1" : "0",
-        MINKE_DISABLED_PLUGINS: JSON.stringify(safeMode ? [] : [failingPluginId]),
       });
       const recoveryManifest = await fetchManifest(server);
       if (!recoveryManifest.entries.some(entry => entry.id === productPackageName)
@@ -1024,6 +1011,7 @@ async function main() {
       }
       await fetchMinkeHostCapabilities(server);
       if (!safeMode) {
+        await waitForModelProvider(server, "minke-smoke-live");
         const response = await server.fetch(`${server.baseUrl}/smoke/plugin-inventory`);
         const current = response.ok ? await response.json() : undefined;
         if (!Array.isArray(current?.entries)
@@ -1052,9 +1040,13 @@ async function main() {
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,
         `  isolated plugin failure: ${failingPluginId}`,
-        "  plugin recovery: disabled entries and safe mode retain installations",
-        `  Minke Host RPC: files=${String(minkeCapabilities.files.available)}, tabs=${String(minkeCapabilities.tabs.available)}, terminal=${String(minkeCapabilities.terminal.available)}`,
+        "  native PluginManager: live disabling retains installed bundles across restart",
+        "  native model settings: legacy import, live edits and restart persistence",
+        "  plugin recovery: safe mode retains installations",
+        `  Minke Host RPC: files=${String(minkeCapabilities.files.available)}, tabs=${String(minkeCapabilities.tabs.available)}`,
+        "  native DSH Terminal: shell command, resize, exit and close functional",
         "  Minke PWA: standalone manifest/icons/service worker",
+        `  bundled Office preview: DOCX converted to ${String(officePdf.length)} PDF bytes`,
         `  external plugin install/load/HMR: ${externalPluginUrl}`,
         "  ambient dsh/Node/pnpm dependency: none",
         `  runtime source: ${packaged ? "packaged app" : "staged development host"}`,

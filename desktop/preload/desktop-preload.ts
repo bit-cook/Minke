@@ -4,20 +4,14 @@ import {
   webFrame,
 } from "electron";
 import appManifest from "../../package.json";
+import { DIRECTORY_PICK_CHANNEL } from "@minke/desktop/directory-picker-contract.ts";
 import macOSSurfaceCss from "../../resources/desktop-style-extension/early.css?raw";
 import {
-  PLUGIN_INSTALLED_READ_CHANNEL,
-  PLUGIN_INSTALL_CHANNEL,
-  PLUGIN_RESTART_CHANNEL,
+  PLUGIN_SETTINGS_READ_CHANNEL,
   PLUGIN_SAFE_MODE_SET_CHANNEL,
-  PLUGIN_SET_ENABLED_CHANNEL,
-  PLUGIN_UNINSTALL_CHANNEL,
-  parseInstalledPluginsSnapshot,
-  parsePluginInstallRequest,
+  parsePluginManagementSettings,
   parsePluginSafeModeSetRequest,
-  parsePluginSetEnabledRequest,
-  parsePluginUninstallRequest,
-} from "@minke/harness-overlay/plugin-install-contract.ts";
+} from "@minke/harness-overlay/plugin-recovery-contract.ts";
 import {
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
   MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
@@ -129,23 +123,6 @@ import {
   type FileManagerWriteRequest,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
-  parseTerminalCreateRequest,
-  parseTerminalCreateResult,
-  parseTerminalEvent,
-  parseTerminalResizeRequest,
-  parseTerminalSessionId,
-  parseTerminalWriteRequest,
-  TABS_TERMINAL_CLOSE_CHANNEL,
-  TABS_TERMINAL_CREATE_CHANNEL,
-  TABS_TERMINAL_EVENT_CHANNEL,
-  TABS_TERMINAL_RESIZE_CHANNEL,
-  TABS_TERMINAL_WRITE_CHANNEL,
-  type TerminalCreateRequest,
-  type TerminalEvent,
-  type TerminalResizeRequest,
-  type TerminalWriteRequest,
-} from "@minke/harness-overlay/tabs/terminal-contract.ts";
-import {
   isDesktopLocale,
   WINDOW_LOCALE_CHANNEL,
   type DesktopLocale,
@@ -227,7 +204,6 @@ let lastMessage: WindowThemeMessage | undefined;
 let hasAuthoritativeTheme = false;
 const shortcutUnsubscribers = new Set<() => void>();
 const fileWatchUnsubscribers = new Set<() => void>();
-const terminalUnsubscribers = new Set<() => void>();
 const remoteRuntimeUnsubscribers = new Set<() => void>();
 const agentBrowserUnsubscribers = new Set<() => void>();
 const remoteHubUnsubscribers = new Set<() => void>();
@@ -631,51 +607,6 @@ const terminal = Object.freeze({
       parseTerminalSettings(settings),
     );
   },
-  async create(request: TerminalCreateRequest): Promise<unknown> {
-    return parseTerminalCreateResult(
-      await ipcRenderer.invoke(
-        TABS_TERMINAL_CREATE_CHANNEL,
-        parseTerminalCreateRequest(request),
-      ),
-    );
-  },
-  write(request: TerminalWriteRequest): void {
-    ipcRenderer.send(
-      TABS_TERMINAL_WRITE_CHANNEL,
-      parseTerminalWriteRequest(request),
-    );
-  },
-  resize(request: TerminalResizeRequest): void {
-    ipcRenderer.send(
-      TABS_TERMINAL_RESIZE_CHANNEL,
-      parseTerminalResizeRequest(request),
-    );
-  },
-  close(sessionId: string): void {
-    ipcRenderer.send(
-      TABS_TERMINAL_CLOSE_CHANNEL,
-      parseTerminalSessionId(sessionId),
-    );
-  },
-  subscribe(listener: (event: TerminalEvent) => void): () => void {
-    const wrapped = (_event: unknown, value: unknown): void => {
-      try {
-        listener(parseTerminalEvent(value));
-      } catch {
-        // Only main-process events matching the shared contract are delivered.
-      }
-    };
-    ipcRenderer.on(TABS_TERMINAL_EVENT_CHANNEL, wrapped);
-    let active = true;
-    const unsubscribe = (): void => {
-      if (!active) return;
-      active = false;
-      terminalUnsubscribers.delete(unsubscribe);
-      ipcRenderer.off(TABS_TERMINAL_EVENT_CHANNEL, wrapped);
-    };
-    terminalUnsubscribers.add(unsubscribe);
-    return unsubscribe;
-  },
 });
 
 const appUpdate = Object.freeze({
@@ -821,40 +752,12 @@ const remoteHub = Object.freeze({
   },
 });
 
-const pluginInstaller = Object.freeze({
-  async install(command: string): Promise<void> {
-    await ipcRenderer.invoke(
-      PLUGIN_INSTALL_CHANNEL,
-      parsePluginInstallRequest({ command }),
-    );
-  },
-  async uninstall(name: string): Promise<void> {
-    await ipcRenderer.invoke(
-      PLUGIN_UNINSTALL_CHANNEL,
-      parsePluginUninstallRequest({ name }),
-    );
-  },
-  async setEnabled(name: string, enabled: boolean): Promise<void> {
-    await ipcRenderer.invoke(
-      PLUGIN_SET_ENABLED_CHANNEL,
-      parsePluginSetEnabledRequest({ name, enabled }),
-    );
-  },
+const pluginRecovery = Object.freeze({
   async setSafeMode(enabled: boolean): Promise<void> {
-    await ipcRenderer.invoke(
-      PLUGIN_SAFE_MODE_SET_CHANNEL,
-      parsePluginSafeModeSetRequest({ enabled }),
-    );
+    await ipcRenderer.invoke(PLUGIN_SAFE_MODE_SET_CHANNEL, parsePluginSafeModeSetRequest({ enabled }));
   },
-  async restart(): Promise<void> {
-    await ipcRenderer.invoke(PLUGIN_RESTART_CHANNEL);
-  },
-  async readInstalled(): Promise<unknown> {
-    return parseInstalledPluginsSnapshot(
-      await ipcRenderer.invoke(
-        PLUGIN_INSTALLED_READ_CHANNEL,
-      ),
-    );
+  async readSettings(): Promise<unknown> {
+    return parsePluginManagementSettings(await ipcRenderer.invoke(PLUGIN_SETTINGS_READ_CHANNEL));
   },
 });
 
@@ -919,6 +822,10 @@ const windowTheme = Object.freeze({
   },
 });
 
+contextBridge.exposeInMainWorld("__DSH_DIRECTORY_PICKER__", Object.freeze({
+  pick: (): Promise<string | null> => ipcRenderer.invoke(DIRECTORY_PICK_CHANNEL),
+}));
+
 contextBridge.exposeInMainWorld(
   "minkeDesktop",
   Object.freeze({
@@ -930,7 +837,7 @@ contextBridge.exposeInMainWorld(
     files,
     locale,
     modelRuntime,
-    pluginInstaller,
+    pluginRecovery,
     remote,
     remoteHub,
     sessionLogs,
@@ -953,9 +860,6 @@ window.addEventListener(
       unsubscribe();
     }
     for (const unsubscribe of [...fileWatchUnsubscribers]) {
-      unsubscribe();
-    }
-    for (const unsubscribe of [...terminalUnsubscribers]) {
       unsubscribe();
     }
     for (const unsubscribe of [...remoteRuntimeUnsubscribers]) {

@@ -62,7 +62,6 @@ const MAIN_WINDOW_PARTITION = "minke-main-window";
 export interface MainWindowRuntimeOptions {
   agentBrowser: AgentBrowserRuntime;
   locale: DesktopLocaleRuntime;
-  environment(): NodeJS.ProcessEnv;
   harnessUrl(): string | undefined;
   attachHarness(window: BrowserWindow): Promise<void>;
   refreshMenu(): void;
@@ -179,14 +178,10 @@ export class MainWindowRuntime {
       shell,
       (candidate) => this.authorize(candidate, window),
       {
-        runtimeRoot: this.#runtimeRoot(),
-        electronExecutable: process.execPath,
-        defaultCwd: app.getPath("home"),
         fileSystemRoot: parse(app.getPath("home")).root,
         minkeConfigPath: minkeConfigFilePath(
           app.getPath("userData"),
         ),
-        environment: this.#options.environment(),
         agentBrowser: this.#options.agentBrowser,
         prepareWebSession: () => this.#prepareTabsWebSession(),
       },
@@ -307,12 +302,6 @@ export class MainWindowRuntime {
     params?: DesktopTranslateParams,
   ): string {
     return this.#options.locale.t(key, params);
-  }
-
-  #runtimeRoot(): string {
-    return app.isPackaged
-      ? join(process.resourcesPath, "host")
-      : join(app.getAppPath(), "runtime", "host");
   }
 
   #prepareTabsWebSession(): void {

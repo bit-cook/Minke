@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   MOBILE_WEB_ROOT_ATTRIBUTE,
@@ -9,9 +8,6 @@ import {
 import {
   TABS_STYLES,
 } from "@minke/harness-overlay/client/tabs/styles.ts";
-import {
-  observeTerminalVisualViewport,
-} from "@minke/harness-overlay/client/tabs/terminal/visual-viewport.ts";
 
 test("mobile drawer follows the visible viewport above the keyboard", () => {
   assert.match(
@@ -76,33 +72,4 @@ test("mobile viewport runtime tracks keyboard height and cleans up", () => {
     styleValues.has("--minke-visual-viewport-height"),
     false,
   );
-});
-
-test("terminal observes keyboard-driven visual viewport changes", () => {
-  const terminalViewSource = readFileSync(
-    new URL(
-      "../packages/harness-overlay/src/client/tabs/terminal/TerminalView.tsx",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-
-  assert.match(
-    terminalViewSource,
-    /observeTerminalVisualViewport\(view,\s*scheduleFit\)/u,
-  );
-  const visualViewport = new EventTarget();
-  const calls = [];
-  const dispose = observeTerminalVisualViewport(
-    { visualViewport },
-    () => calls.push("fit"),
-  );
-
-  visualViewport.dispatchEvent(new Event("resize"));
-  visualViewport.dispatchEvent(new Event("scroll"));
-  assert.deepEqual(calls, ["fit", "fit"]);
-
-  dispose();
-  visualViewport.dispatchEvent(new Event("resize"));
-  assert.deepEqual(calls, ["fit", "fit"]);
 });

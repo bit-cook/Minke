@@ -20,7 +20,7 @@ import {
 import {
   parsePluginManagementSettings,
   type PluginManagementSettings,
-} from "@minke/harness-overlay/plugin-install-contract.ts";
+} from "@minke/harness-overlay/plugin-recovery-contract.ts";
 import {
   parseShortcutBindings,
   type ShortcutBindings,

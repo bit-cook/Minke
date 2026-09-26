@@ -1,4 +1,6 @@
 import { filesDocumentKind } from "./document-kind.ts";
+import { restoreFilesPayload } from "./persistence.ts";
+import type { ManagedTab } from "../types.ts";
 import type {
   DesktopFilesPort,
 } from "@minke/harness-overlay/client/desktop/index.ts";
@@ -123,9 +125,12 @@ export class FilesTabsController {
 
   create(path: string | undefined, title: string): string | undefined {
     if (this.#disposed || !this.#desktop.available) return undefined;
+    let key: string;
+    do { key = `files:${++this.#nextId}`; }
+    while (this.#tabs.getSnapshot().tabs.some(tab => tab.kind === "files" && tab.key === key));
     const tabId = this.#tabs.open<FilesTabPayload>({
       kind: "files",
-      key: `files:${++this.#nextId}`,
+      key,
       title,
       payload: {
         ...(path === undefined ? {} : { path }),
@@ -145,6 +150,16 @@ export class FilesTabsController {
     if (tabId === undefined) return undefined;
     void this.#load(tabId, path, { type: "initial" });
     return tabId;
+  }
+
+  restore(tab: ManagedTab): void {
+    if (this.#disposed || !this.#desktop.available) return;
+    const payload = restoreFilesPayload(tab.payload);
+    this.#previewRevision.set(tab.id, 0);
+    this.#tabs.restore({ ...tab, payload });
+    void this.#load(tab.id, payload.path, { type: "initial" });
+    if (payload.preview && !payload.preview.dirty) this.#startPreview(tab.id, payload.preview.entry, payload.preview.mode);
+    else if (payload.preview?.mode === "diff") this.setPreviewMode(tab.id, "diff");
   }
 
   openFile(path: string, title: string): string | undefined {

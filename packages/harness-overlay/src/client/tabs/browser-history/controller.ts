@@ -67,6 +67,10 @@ export class BrowserHistoryTabsController {
     });
   }
 
+  restore(tab: import("../types.ts").ManagedTab): void {
+    this.#tabs.restore({ ...tab, payload: { scope: "global" } });
+  }
+
   openVisit(
     url: string,
     title?: string,

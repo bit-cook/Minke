@@ -2,7 +2,7 @@ import {
   DEFAULT_PLUGIN_MANAGEMENT_SETTINGS,
   parsePluginManagementSettings,
   type PluginManagementSettings,
-} from "@minke/harness-overlay/plugin-install-contract.ts";
+} from "@minke/harness-overlay/plugin-recovery-contract.ts";
 
 export interface PluginManagementSettingsStore {
   read(): Promise<PluginManagementSettings>;
@@ -40,18 +40,11 @@ export class PluginManagementRuntime {
     );
   }
 
-  setEnabled(name: string, enabled: boolean): Promise<void> {
-    return this.#update((current) => {
-      const disabled = new Set(current.disabledPlugins);
-      if (enabled) {
-        disabled.delete(name);
-      } else {
-        disabled.add(name);
-      }
-      return {
-        safeMode: current.safeMode,
-        disabledPlugins: [...disabled].sort(),
-      };
+  migrateDisabled(migrate: (names: readonly string[]) => Promise<void>): Promise<void> {
+    return this.#update(async current => {
+      if (current.disabledPlugins.length === 0) return current;
+      await migrate(current.disabledPlugins);
+      return { ...current, disabledPlugins: [] };
     });
   }
 
@@ -65,12 +58,14 @@ export class PluginManagementRuntime {
   #update(
     update: (
       current: PluginManagementSettings,
-    ) => PluginManagementSettings,
+    ) => PluginManagementSettings | Promise<PluginManagementSettings>,
   ): Promise<void> {
     const operation = this.#tail.then(async () => {
       const current = await this.read();
+      const next = await update(current);
+      if (next === current) return;
       await this.#store.write(
-        parsePluginManagementSettings(update(current)),
+        parsePluginManagementSettings(next),
       );
     });
     this.#tail = operation.catch(() => undefined);

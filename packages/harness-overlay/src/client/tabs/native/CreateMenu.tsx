@@ -1,18 +1,19 @@
-import { useId, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { TabsCreateMenu, type TabsCreateMenuOption } from "../TabsCreateMenu.tsx";
+import { useId, useLayoutEffect, useSyncExternalStore, type ReactNode } from "react";
+import { Compass } from "@lucide/icons";
+import { LucideIcon } from "../components/LucideIcon.ts";
 import type { TabCreateShortcutBindings } from "../create-shortcuts.ts";
 import type { TabsTranslate } from "../locales.ts";
 import type { TabRendererRegistry } from "../registry.ts";
+import { TabsCreateMenu, type TabsCreateMenuOption } from "../TabsCreateMenu.tsx";
 import type { NativeSidebarService, NativeTabRegistry } from "./contract.ts";
 import type { NativeTabsRuntime } from "./runtime.ts";
 
-interface CreateRequest {
-  readonly anchor: HTMLButtonElement;
-  readonly sessionId: string;
-  readonly paneId: string;
-}
-
-interface NativeTabsCreateMenuProps {
+/** Owner props come from the pinned sidebar-add-menu slot, in the clicked pane. */
+export interface NativeTabsCreateMenuProps {
+  sessionId: string;
+  paneId: string;
+  anchor: HTMLElement;
+  onClose(): void;
   native: NativeTabsRuntime;
   sidebar: NativeSidebarService;
   registry: NativeTabRegistry;
@@ -22,99 +23,51 @@ interface NativeTabsCreateMenuProps {
   t: TabsTranslate;
 }
 
-/** The pinned DSH add button has a DOM marker but no replacement slot. Route
- * its activation to the shared menu; layout changes still go through DSH. */
-export function NativeTabsCreateMenu({ native, sidebar, registry, renderers, createShortcuts, currentCwd, t }: NativeTabsCreateMenuProps): ReactNode {
-  const menuId = useId();
-  const [request, setRequest] = useState<CreateRequest | null>(null);
-  useSyncExternalStore(renderers.subscribe, renderers.getSnapshot, renderers.getSnapshot);
-  useSyncExternalStore(createShortcuts.subscribe, createShortcuts.getSnapshot, createShortcuts.getSnapshot);
+/** DSH owns the button and layout; this slot only chooses the content to open. */
+export function NativeTabsCreateMenu({
+  sessionId, paneId, anchor, onClose, native, sidebar, registry, renderers, createShortcuts, currentCwd, t,
+}: NativeTabsCreateMenuProps): ReactNode {
+  const id = useId();
   const entries = useSyncExternalStore(
     listener => registry.subscribe(listener), () => registry.guide(), () => registry.guide(),
-  ).filter(entry => entry.kind !== "minke.launcher");
-
+  );
+  useSyncExternalStore(renderers.subscribe, renderers.getSnapshot, renderers.getSnapshot);
+  useSyncExternalStore(createShortcuts.subscribe, createShortcuts.getSnapshot, createShortcuts.getSnapshot);
   useLayoutEffect(() => {
-    const selector = "[data-sidebar-right-panel] [data-dockkit-add-tab]";
-    const attributes = ["aria-haspopup", "aria-expanded", "aria-controls"] as const;
-    const originals = new Map<HTMLButtonElement, (string | null)[]>();
-    const restore = (button: HTMLButtonElement, values: readonly (string | null)[]): void => {
-      attributes.forEach((name, index) => {
-        const value = values[index];
-        if (value == null) button.removeAttribute(name);
-        else button.setAttribute(name, value);
-      });
-    };
-    const reconcile = (): void => {
-      for (const [button, values] of originals) {
-        if (button.isConnected) continue;
-        restore(button, values);
-        originals.delete(button);
-      }
-      for (const button of document.querySelectorAll<HTMLButtonElement>(selector)) {
-        if (!originals.has(button)) originals.set(button, attributes.map(name => button.getAttribute(name)));
-        const expanded = request?.anchor === button;
-        button.setAttribute("aria-haspopup", "menu");
-        button.setAttribute("aria-expanded", String(expanded));
-        if (expanded) button.setAttribute("aria-controls", menuId);
-        else button.removeAttribute("aria-controls");
-      }
-      if (request && (!request.anchor.isConnected || !native.canCreateIn(request.sessionId, request.paneId))) {
-        setRequest(null);
-      }
-    };
-    const trigger = (event: MouseEvent | KeyboardEvent): void => {
-      const keyboard = event instanceof KeyboardEvent;
-      if (keyboard && event.key !== "ArrowDown") return;
-      const anchor = event.target instanceof Element
-        ? event.target.closest<HTMLButtonElement>(selector) : null;
-      const sessionId = native.sessionId;
-      const paneId = anchor?.dataset.dockkitAddTab;
-      if (!anchor || !sessionId || !paneId || !native.canCreateIn(sessionId, paneId)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setRequest(current => !keyboard && current?.anchor === anchor ? null : { anchor, sessionId, paneId });
-    };
-    reconcile();
-    const observer = new MutationObserver(reconcile);
-    observer.observe(document.body, {
-      childList: true, subtree: true, attributes: true,
-      attributeFilter: ["data-sidebar-right-open", "data-sidebar-right-panel"],
-    });
-    const release = native.subscribe(reconcile);
-    document.addEventListener("click", trigger, true);
-    document.addEventListener("keydown", trigger, true);
+    const previous = ["aria-haspopup", "aria-expanded", "aria-controls"].map(name => [name, anchor.getAttribute(name)] as const);
+    anchor.setAttribute("aria-haspopup", "menu");
+    anchor.setAttribute("aria-expanded", "true");
+    anchor.setAttribute("aria-controls", id);
     return () => {
-      observer.disconnect();
-      release();
-      document.removeEventListener("click", trigger, true);
-      document.removeEventListener("keydown", trigger, true);
-      for (const [button, values] of originals) restore(button, values);
+      for (const [name, value] of previous) {
+        if (value === null) anchor.removeAttribute(name);
+        else anchor.setAttribute(name, value);
+      }
     };
-  }, [menuId, native, request]);
-
-  if (!request) return null;
-  const { sessionId, paneId } = request;
-  const options: TabsCreateMenuOption[] = [
-    ...entries.map((entry): TabsCreateMenuOption => {
-      const Icon = entry.icon;
-      return {
-        id: `dsh:${entry.providerId}:${entry.id}`, group: "DSH", label: entry.title(),
-        icon: Icon ? <Icon size={16} /> : null,
-        create: () => {
-          if (native.canCreateIn(sessionId, paneId)) sidebar.openTab(entry.kind, { paneId });
-        },
-      };
-    }),
-    ...renderers.creators().map((option): TabsCreateMenuOption => ({
-      ...option, group: "Minke",
-      create: context => native.createInPane(sessionId, paneId, () => option.create(context)),
-    })),
-  ];
+  }, [anchor, id]);
+  const nativeOptions: TabsCreateMenuOption[] = entries
+    .filter(entry => entry.kind !== "minke.launcher")
+    .map(entry => ({
+      id: `dsh:${entry.kind}:${entry.id}`, group: "DSH", label: entry.title(),
+      icon: entry.icon ? <entry.icon size={20} /> : <LucideIcon icon={Compass} size={20} />,
+      create: () => {
+        if (sidebar.mounted.getSnapshot() === sessionId) sidebar.openTab(entry.kind, { paneId });
+      },
+    }));
+  nativeOptions.push({
+    id: "dsh:guide", group: "DSH", label: t("tab.start"), icon: <LucideIcon icon={Compass} size={20} />,
+    create: () => {
+      if (sidebar.mounted.getSnapshot() === sessionId) sidebar.openTab("guide", { paneId });
+    },
+  });
+  const minkeOptions = renderers.creators().filter(option => !option.nativeKind).map(option => ({
+    ...option, group: "Minke",
+    create: () => native.createInPane(sessionId, paneId, () => option.create({ cwd: currentCwd() })),
+  }));
   return <TabsCreateMenu
-    anchor={request.anchor} id={menuId} open
-    label={t("tab.new")} placement="right" context={{ cwd: currentCwd() }}
-    options={options} onClose={() => setRequest(null)}
-    shortcutBinding={id => createShortcuts.binding("right", id)}
+    anchor={anchor} id={id} context={{}} label={t("tab.new")} onClose={onClose}
+    open placement="right" options={[...nativeOptions, ...minkeOptions]}
+    shortcutBinding={optionId => createShortcuts.binding("right", optionId)}
     shortcutPlatform={createShortcuts.platform}
   />;
 }

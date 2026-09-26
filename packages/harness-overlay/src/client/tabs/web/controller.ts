@@ -134,9 +134,12 @@ export class WebTabsController {
   }
 
   createBlank(title: string): string | undefined {
+    let key: string;
+    do { key = `blank:${++this.#nextBlankId}`; }
+    while (this.#tabs.getSnapshot().tabs.some(tab => tab.kind === "web" && tab.key === key));
     return this.#tabs.open<WebTabPayload>({
       kind: "web",
-      key: `blank:${++this.#nextBlankId}`,
+      key,
       title,
       payload: {
         loading: false,
@@ -144,6 +147,14 @@ export class WebTabsController {
         canGoForward: false,
       },
     });
+  }
+
+  restore(tab: import("../types.ts").ManagedTab): void {
+    if (typeof tab.payload !== "object" || tab.payload === null) return;
+    const candidate = "url" in tab.payload ? tab.payload.url : undefined;
+    const url = typeof candidate === "string" ? normalizeWebTabUrl(candidate) : undefined;
+    if (candidate !== undefined && url === undefined) return;
+    this.#tabs.restore({ ...tab, payload: { url, loading: url !== undefined, canGoBack: false, canGoForward: false } });
   }
 
   attach(id: string, view: WebviewHandle): () => void {
@@ -194,8 +205,8 @@ export class WebTabsController {
       ...(error === undefined ? {} : { error }),
     };
     this.#tabs.update<WebTabPayload>(id, {
-      ...(nextUrl === undefined ? {} : { key: nextUrl }),
-      ...(patch.title === undefined
+      ...(nextUrl === undefined || tab.kind !== "web" ? {} : { key: nextUrl }),
+      ...(patch.title === undefined || tab.kind !== "web"
         ? {}
         : nextUrl === undefined
           ? { title: patch.title }

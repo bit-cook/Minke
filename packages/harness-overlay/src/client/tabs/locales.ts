@@ -13,6 +13,7 @@ export const tabsZh = {
   "header.closeBottom": "关闭底部标签页面板",
   "tab.close": "关闭“{title}”",
   "tab.new": "新建标签页",
+  "tab.start": "开始",
   "tab.reorder": "拖拽以重新排序“{title}”",
   "error.unsupported.title": "无法显示此标签页",
   "error.unsupported.body": "尚未安装用于显示“{kind}”内容的渲染器。",
@@ -38,6 +39,7 @@ export const tabsEn: Record<TabsLocaleKey, string> = {
   "header.closeBottom": "Close bottom Tabs panel",
   "tab.close": "Close “{title}”",
   "tab.new": "New tab",
+  "tab.start": "Start",
   "tab.reorder": "Drag to reorder “{title}”",
   "error.unsupported.title": "This tab cannot be displayed",
   "error.unsupported.body":

@@ -20,26 +20,17 @@ import {
 import {
   isTerminalTab,
 } from "./types.ts";
-import type {
-  TerminalSettingsRuntime,
-} from "./settings/runtime.ts";
-import type {
-  CodeThemeSettingsRuntime,
-} from "../files/code-theme-runtime.ts";
 
 export function createTerminalTabRenderer(
   controller: TerminalTabsController,
-  settings: TerminalSettingsRuntime,
-  codeThemes: CodeThemeSettingsRuntime,
   t: TerminalTabsTranslate,
 ): TabRenderer {
-  const createTerminal = (context: {
-    readonly cwd?: string;
-  }): void => {
-    controller.create(context.cwd, t("terminal.tab.new"));
+  const createTerminal = (): void => {
+    controller.create(t("terminal.tab.new"));
   };
   return {
     kind: "terminal",
+    persistence: { save: tab => controller.save(tab), restore: tab => controller.restore(tab) },
     createOptions: () => [
       {
         id: "terminal",
@@ -53,6 +44,7 @@ export function createTerminalTabRenderer(
     renderView: (
       tab: ManagedTab,
       active: boolean,
+      visible = true,
     ): ReactNode =>
       isTerminalTab(tab)
         ? (
@@ -60,9 +52,8 @@ export function createTerminalTabRenderer(
             key={tab.id}
             tab={tab}
             active={active}
+            visible={visible}
             controller={controller}
-            settings={settings}
-            codeThemes={codeThemes}
             t={t}
           />
         )

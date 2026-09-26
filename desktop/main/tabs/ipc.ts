@@ -5,8 +5,7 @@ import type {
   WebContents,
   WebPreferences,
 } from "electron";
-import { isAbsolute, join } from "node:path";
-import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import {
   parseTabsLayoutStateUpdate,
   TABS_LAYOUT_STATE_READ_CHANNEL,
@@ -37,17 +36,6 @@ import {
   TABS_FILES_WRITE_CHANNEL,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
-  parseTerminalCreateRequest,
-  parseTerminalResizeRequest,
-  parseTerminalSessionId,
-  parseTerminalWriteRequest,
-  TABS_TERMINAL_CLOSE_CHANNEL,
-  TABS_TERMINAL_CREATE_CHANNEL,
-  TABS_TERMINAL_EVENT_CHANNEL,
-  TABS_TERMINAL_RESIZE_CHANNEL,
-  TABS_TERMINAL_WRITE_CHANNEL,
-} from "@minke/harness-overlay/tabs/terminal-contract.ts";
-import {
   FileManagerRuntime,
 } from "./files.ts";
 import {
@@ -77,57 +65,12 @@ import type {
   TabsAuthorization,
   TabsBinding,
 } from "./types.ts";
-import {
-  loadTerminalPty,
-  TerminalSessionRuntime,
-} from "./terminal.ts";
-import {
-  environmentValue,
-} from "../../../config/embedded-node-runtime.mts";
 
 interface TabsBindingOptions {
-  readonly runtimeRoot: string;
-  readonly electronExecutable: string;
-  readonly defaultCwd: string;
   readonly fileSystemRoot: string;
   readonly minkeConfigPath: string;
-  readonly environment: NodeJS.ProcessEnv;
   readonly agentBrowser: AgentBrowserRuntime;
   readonly prepareWebSession: () => void;
-}
-
-async function resolveTerminalCwd(candidate: string): Promise<string> {
-  if (!isAbsolute(candidate)) {
-    throw new TypeError("terminal working directory must be absolute");
-  }
-  const details = await stat(candidate);
-  if (!details.isDirectory()) {
-    throw new TypeError("terminal working directory must be a directory");
-  }
-  return candidate;
-}
-
-export function defaultTerminalShell(
-  environment: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): {
-  shell: string;
-  args: readonly string[];
-} {
-  if (platform === "win32") {
-    return {
-      shell:
-        environmentValue(environment, "COMSPEC") ??
-        "cmd.exe",
-      args: [],
-    };
-  }
-  return {
-    shell:
-      environmentValue(environment, "SHELL") ??
-      (platform === "darwin" ? "/bin/zsh" : "/bin/sh"),
-    args: ["-l"],
-  };
 }
 
 /**
@@ -144,24 +87,6 @@ export function bindTabs(
   authorize: TabsAuthorization,
   options: TabsBindingOptions,
 ): TabsBinding {
-  const terminalShell = defaultTerminalShell(
-    options.environment,
-  );
-  const terminal = new TerminalSessionRuntime({
-    pty: loadTerminalPty(options.runtimeRoot),
-    shell: terminalShell.shell,
-    shellArgs: terminalShell.args,
-    runtimeRoot: options.runtimeRoot,
-    electronExecutable: options.electronExecutable,
-    defaultCwd: options.defaultCwd,
-    environment: options.environment,
-    resolveCwd: resolveTerminalCwd,
-    send: (event) => {
-      if (!embedder.isDestroyed()) {
-        embedder.send(TABS_TERMINAL_EVENT_CHANNEL, event);
-      }
-    },
-  });
   const files = new FileManagerRuntime({
     rootPath: options.fileSystemRoot,
     allowCrossVolumeAccess: true,
@@ -271,50 +196,6 @@ export function bindTabs(
     await tabsLayoutState.write(
       parseTabsLayoutStateUpdate(update),
     );
-  };
-  const handleTerminalCreate = async (
-    event: IpcMainInvokeEvent,
-    request: unknown,
-  ): Promise<unknown> => {
-    if (!authorize(event)) {
-      throw new Error("unauthorized Terminal request");
-    }
-    return await terminal.create(
-      parseTerminalCreateRequest(request),
-    );
-  };
-  const handleTerminalWrite = (
-    event: IpcMainEvent,
-    request: unknown,
-  ): void => {
-    if (!authorize(event)) return;
-    try {
-      terminal.write(parseTerminalWriteRequest(request));
-    } catch {
-      // Invalid high-frequency input is ignored at the trusted boundary.
-    }
-  };
-  const handleTerminalResize = (
-    event: IpcMainEvent,
-    request: unknown,
-  ): void => {
-    if (!authorize(event)) return;
-    try {
-      terminal.resize(parseTerminalResizeRequest(request));
-    } catch {
-      // Invalid resize traffic is ignored at the trusted boundary.
-    }
-  };
-  const handleTerminalClose = (
-    event: IpcMainEvent,
-    sessionId: unknown,
-  ): void => {
-    if (!authorize(event)) return;
-    try {
-      terminal.close(parseTerminalSessionId(sessionId));
-    } catch {
-      // Invalid close traffic is ignored at the trusted boundary.
-    }
   };
   const handleFilesList = async (
     event: IpcMainInvokeEvent,
@@ -426,10 +307,6 @@ export function bindTabs(
     TABS_LAYOUT_STATE_WRITE_CHANNEL,
     handleTabsLayoutStateWrite,
   );
-  ipc.handle(TABS_TERMINAL_CREATE_CHANNEL, handleTerminalCreate);
-  ipc.on(TABS_TERMINAL_WRITE_CHANNEL, handleTerminalWrite);
-  ipc.on(TABS_TERMINAL_RESIZE_CHANNEL, handleTerminalResize);
-  ipc.on(TABS_TERMINAL_CLOSE_CHANNEL, handleTerminalClose);
   ipc.handle(TABS_FILES_LIST_CHANNEL, handleFilesList);
   ipc.handle(TABS_FILES_DIFF_CHANNEL, handleFilesDiff);
   ipc.handle(TABS_FILES_OPEN_CHANNEL, handleFilesOpen);
@@ -468,19 +345,6 @@ export function bindTabs(
       attachedWebGuests.clear();
       ipc.removeHandler(TABS_LAYOUT_STATE_READ_CHANNEL);
       ipc.removeHandler(TABS_LAYOUT_STATE_WRITE_CHANNEL);
-      ipc.removeHandler(TABS_TERMINAL_CREATE_CHANNEL);
-      ipc.removeListener(
-        TABS_TERMINAL_WRITE_CHANNEL,
-        handleTerminalWrite,
-      );
-      ipc.removeListener(
-        TABS_TERMINAL_RESIZE_CHANNEL,
-        handleTerminalResize,
-      );
-      ipc.removeListener(
-        TABS_TERMINAL_CLOSE_CHANNEL,
-        handleTerminalClose,
-      );
       ipc.removeHandler(TABS_FILES_LIST_CHANNEL);
       ipc.removeHandler(TABS_FILES_DIFF_CHANNEL);
       ipc.removeHandler(TABS_FILES_OPEN_CHANNEL);
@@ -498,7 +362,6 @@ export function bindTabs(
       );
       agentBrowserProjection.dispose();
       fileWatch.dispose();
-      void terminal.dispose();
     },
   };
 }

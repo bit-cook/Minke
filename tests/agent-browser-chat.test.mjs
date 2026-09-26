@@ -43,15 +43,15 @@ function fixture(t, { draft = "Keep my question" } = {}) {
     return register(value);
   };
   const sessions = {
-    list: { getSnapshot: () => ({ current: "chat-1", byId: { "chat-1": {} } }) },
+    list: { getSnapshot: () => ({ byId: { "chat-1": { retainedBy: { mainView: 1 } } } }) },
     scope: id => id === "chat-1" ? scope : undefined,
     binding: () => ({ session: { async prompt(...args) {
       promptCalls.push(args);
       return { ok: true };
     } } }),
-    open: id => opened.push(id),
   };
-  const bridge = createAgentBrowserComposerBridge(sessions);
+  const navigation = { openSession: id => opened.push(id) };
+  const bridge = createAgentBrowserComposerBridge(sessions, navigation);
   const disconnect = bridge.connect(service, triggers);
   input.setDraft(draft);
   t.after(() => {
@@ -59,7 +59,7 @@ function fixture(t, { draft = "Keep my question" } = {}) {
     for (const id of input.dispose()) service.releaseDraftAttachment(id);
   });
   return {
-    input, service, bridge, sessions, opened, promptCalls,
+    input, service, bridge, sessions, navigation, opened, promptCalls,
     source: () => source,
     port: createAgentBrowserChatPort(sessions, bridge),
     snapshot: () => input.state.getSnapshot(),
@@ -71,6 +71,18 @@ const screenshot = {
   text: "# Browser comments\n\n### User Comment 1\n这是",
 };
 const target = { sessionId: "chat-1" };
+
+test("Browser comments target the main view while sidebar Sessions coexist", t => {
+  const f = fixture(t);
+  let byId = {
+    child: { title: "Sidebar child", retainedBy: { sidebar: 1 } },
+    "chat-1": { title: "Main Chat", retainedBy: { mainView: 1 } },
+  };
+  f.sessions.list.getSnapshot = () => ({ byId });
+  assert.deepEqual(f.port.currentTarget(), { sessionId: "chat-1", title: "Main Chat" });
+  byId = { child: { title: "Sidebar child", retainedBy: { sidebar: 1 } } };
+  assert.equal(f.port.currentTarget(), undefined);
+});
 
 function addFileReference(input) {
   const snapshot = input.state.getSnapshot();
@@ -115,7 +127,7 @@ test("appending multiple Browser comments preserves existing file and comment ch
 
 test("unavailable or disconnected composer keeps the handoff retryable without submitting", async t => {
   const f = fixture(t);
-  for (const composer of [undefined, { stage: () => false }, createAgentBrowserComposerBridge(f.sessions)]) {
+  for (const composer of [undefined, { stage: () => false }, createAgentBrowserComposerBridge(f.sessions, f.navigation)]) {
     const port = createAgentBrowserChatPort(f.sessions, composer);
     await assert.rejects(port.sendScreenshot(screenshot, target), /composer is not ready/u);
   }
@@ -127,7 +139,7 @@ test("unavailable or disconnected composer keeps the handoff retryable without s
 test("staging does not materialize editors for unrelated historical sessions", async t => {
   const f = fixture(t);
   f.sessions.list.getSnapshot = () => ({
-    current: "chat-1", byId: { "chat-1": {}, unopened: {} },
+    byId: { "chat-1": { retainedBy: { mainView: 1 } }, unopened: { retainedBy: {} } },
   });
   const scope = f.sessions.scope;
   f.sessions.scope = id => {

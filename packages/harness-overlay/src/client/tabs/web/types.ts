@@ -43,5 +43,5 @@ export interface WebTabStatePatch {
 export function isWebTab(
   tab: ManagedTab,
 ): tab is ManagedTab<WebTabPayload> {
-  return tab.kind === "web";
+  return tab.kind === "web" || tab.kind === "plugin-catalog";
 }

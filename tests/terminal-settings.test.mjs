@@ -37,9 +37,6 @@ import {
   WebSearchSettingsRuntime,
 } from "@minke/harness-overlay/client/preferences/web-search-runtime.ts";
 import {
-  applyTerminalRenderingSettings,
-} from "@minke/harness-overlay/client/tabs/terminal/settings/rendering.ts";
-import {
   loadTerminalCodeTheme,
   terminalCodeThemeFallback,
 } from "@minke/harness-overlay/client/tabs/files/code-themes.ts";
@@ -50,9 +47,6 @@ import {
   terminalTabsEn,
   terminalTabsZh,
 } from "@minke/harness-overlay/client/tabs/terminal/locales.ts";
-import {
-  TERMINAL_TAB_STYLES,
-} from "@minke/harness-overlay/client/tabs/terminal/styles.ts";
 
 const roots = [];
 
@@ -285,29 +279,6 @@ test("Terminal reuses the selected editor theme including ANSI colors", async ()
   assert.equal(solarizedLight.red, "#dc322f");
   assert.equal(solarizedLight.blue, "#268bd2");
 
-  const terminalViewSource = readFileSync(
-    new URL(
-      "../packages/harness-overlay/src/client/tabs/terminal/TerminalView.tsx",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  assert.match(terminalViewSource, /props\.codeThemes\.subscribe/u);
-  assert.match(
-    terminalViewSource,
-    /loadTerminalCodeTheme\(codeThemeSnapshot\.theme\)/u,
-  );
-  assert.match(
-    terminalViewSource,
-    /data-code-theme=\{codeThemeSnapshot\.theme\}/u,
-  );
-});
-
-test("Terminal viewport covers the FitAddon row remainder with the active theme", () => {
-  assert.match(
-    TERMINAL_TAB_STYLES,
-    /\.minke-terminal-host\s+\.xterm-viewport\s*\{[^}]*background(?:-color)?:\s*var\(--minke-code-background\)/u,
-  );
 });
 
 test("the desktop store writes Terminal settings into Minke config", async () => {
@@ -487,38 +458,6 @@ test("Terminal input changes do not retain React event.currentTarget", () => {
       lineHeight: "1.24",
     },
   );
-});
-
-test("Terminal rendering settings update an existing xterm target", () => {
-  const terminal = {
-    options: {
-      fontFamily: "old",
-      fontSize: 10,
-      lineHeight: 1,
-    },
-  };
-
-  applyTerminalRenderingSettings(
-    terminal,
-    {
-      fontFamily: "JetBrains Mono",
-      fontSize: 15,
-      lineHeight: 1.4,
-    },
-    "App Mono",
-  );
-  assert.deepEqual(terminal.options, {
-    fontFamily: "JetBrains Mono",
-    fontSize: 15,
-    lineHeight: 1.4,
-  });
-
-  applyTerminalRenderingSettings(
-    terminal,
-    DEFAULT_TERMINAL_SETTINGS,
-    "App Mono",
-  );
-  assert.equal(terminal.options.fontFamily, "App Mono");
 });
 
 test("Terminal persistence failures remain observable", async () => {

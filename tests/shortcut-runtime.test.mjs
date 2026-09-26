@@ -1,6 +1,44 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ShortcutRuntime } from "@minke/harness-overlay/client/shortcuts/runtime.ts";
+import { JSDOM } from "../vendor/deepseek-harness/node_modules/jsdom/lib/api.js";
+
+test("DSH window commands arbitrate before Minke fallback bindings", () => {
+  const dom = new JSDOM('<input>', { pretendToBeVisual: true });
+  const previous = ["window", "document"].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
+  for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document })) {
+    Object.defineProperty(globalThis, key, { configurable: true, value });
+  }
+  const calls = [];
+  // The dependency-loaded native owner consumes its commands at window bubble.
+  dom.window.addEventListener("keydown", event => {
+    if (!event.defaultPrevented && event.key === ",") {
+      calls.push("dsh.settings");
+      event.preventDefault();
+    }
+  });
+  const runtime = new ShortcutRuntime({ available: false }, undefined, "apple");
+  runtime.register({ id: "settings.open", label: () => "Settings", defaultBinding: "Mod+Comma", run: () => calls.push("minke.settings") });
+  runtime.register({ id: "palette.open", label: () => "Palette", defaultBinding: "Mod+K", run: () => calls.push("minke.palette") });
+  try {
+    const press = key => dom.window.document.querySelector("input").dispatchEvent(new dom.window.KeyboardEvent("keydown", {
+      key, metaKey: true, bubbles: true, cancelable: true,
+    }));
+    press(",");
+    press("k");
+    assert.deepEqual(calls, ["dsh.settings", "minke.palette"]);
+    runtime.dispose();
+    press("k");
+    assert.equal(calls.length, 2, "unloading removes the fallback listener");
+  } finally {
+    runtime.dispose();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+    dom.window.close();
+  }
+});
 
 class KeyboardTarget {
   listener;

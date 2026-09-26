@@ -1,290 +1,159 @@
-import type {
-  DesktopTerminalPort,
-} from "@minke/harness-overlay/client/desktop/index.ts";
-import type {
-  TerminalEvent,
-} from "@minke/harness-overlay/tabs/terminal-contract.ts";
-import type {
-  TabsRuntime,
-} from "@minke/harness-overlay/client/tabs/runtime.ts";
-import {
-  isTerminalTab,
-  type TerminalTabPayload,
-} from "./types.ts";
+import { mainSessionId } from "../../core/sessions.ts";
+import type { HarnessClientContext } from "../../core/context.ts";
+import type { TabsRuntime } from "../runtime.ts";
+import type { ManagedTab } from "../types.ts";
+import type { DshTerminals, DshTerminalModel, DshTerminalUI } from "./dsh.ts";
+import { isTerminalTab, type TerminalTab, type TerminalTabPayload } from "./types.ts";
 
-const INITIAL_COLS = 80;
-const INITIAL_ROWS = 24;
-const MAX_BUFFERED_OUTPUT = 256 * 1024;
-
-export interface TerminalTabListener {
-  data?(value: string): void;
-  exit?(exitCode: number | undefined): void;
-  error?(message: string): void;
+const OWNER = "minke.bottom";
+// getRandomValues also works on HTTP origins used by remote Web clients.
+function newContentId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return `minke-terminal:${Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("")}`;
 }
+type Reference = ReturnType<HarnessClientContext["sessions"]["retain"]>;
+type Entry = { reference: Reference; model?: DshTerminalModel; unsubscribe?: () => void };
 
-function appendBounded(current: string, value: string): string {
-  return `${current}${value}`.slice(-MAX_BUFFERED_OUTPUT);
-}
-
-/** Terminal-specific lifecycle layered over the content-agnostic Tabs core. */
+/** Bottom placement only. DSH owns shells, connections, recovery and close. */
 export class TerminalTabsController {
-  readonly #tabs: TabsRuntime;
-  readonly #desktop: DesktopTerminalPort;
-  readonly #sessionByTab = new Map<string, string>();
-  readonly #tabBySession = new Map<string, string>();
-  readonly #listeners = new Map<
-    string,
-    Set<TerminalTabListener>
-  >();
-  readonly #bufferByTab = new Map<string, string>();
-  readonly #pendingBySession = new Map<
-    string,
-    TerminalEvent[]
-  >();
-  readonly #pendingWrites = new Map<string, string>();
-  readonly #pendingResize = new Map<
-    string,
-    { cols: number; rows: number }
-  >();
-  readonly #unsubscribeTerminal: () => void;
-  readonly #unsubscribeTabs: () => void;
-  #nextId = 0;
+  readonly tabs: TabsRuntime;
+  readonly sessions: HarnessClientContext["sessions"];
+  readonly startSession: () => void;
+  readonly #entries = new Map<string, Entry>();
+  readonly #listeners = new Set<() => void>();
+  readonly #releaseTabs: () => void;
+  readonly #releaseSessions: () => void;
+  #knownTabs = new Map<string, TerminalTab>();
+  #service?: DshTerminals;
+  #ui?: DshTerminalUI;
+  #revision = 0;
+  #syncing = false;
+  #startingSession = false;
   #disposed = false;
 
-  constructor(tabs: TabsRuntime, desktop: DesktopTerminalPort) {
-    this.#tabs = tabs;
-    this.#desktop = desktop;
-    this.#unsubscribeTerminal = desktop.subscribe(
-      (event) => this.#receive(event),
-    );
-    this.#unsubscribeTabs = tabs.subscribe(
-      () => this.#releaseClosedTabs(),
-    );
+  constructor(tabs: TabsRuntime, sessions: HarnessClientContext["sessions"], startSession: () => void) {
+    this.tabs = tabs;
+    this.sessions = sessions;
+    this.startSession = startSession;
+    this.#releaseTabs = tabs.subscribe(() => this.#sync());
+    this.#releaseSessions = sessions.list.subscribe(() => this.#sync());
   }
 
-  create(cwd: string | undefined, title: string): string | undefined {
-    if (this.#disposed || !this.#desktop.available) return undefined;
-    const tabId = this.#tabs.open<TerminalTabPayload>({
-      kind: "terminal",
-      key: `terminal:${++this.#nextId}`,
-      title,
-      payload: {
-        ...(cwd === undefined ? {} : { cwd }),
-        status: "starting",
-      },
-    });
-    if (tabId === undefined) return undefined;
+  readonly getSnapshot = (): number => this.#revision;
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.#listeners.add(listener);
+    return () => { this.#listeners.delete(listener); };
+  };
+  get ui(): DshTerminalUI | undefined { return this.#ui; }
+  model(id: string): DshTerminalModel | undefined { return this.#entries.get(id)?.model; }
 
-    void this.#desktop
-      .create({
-        ...(cwd === undefined ? {} : { cwd }),
-        cols: INITIAL_COLS,
-        rows: INITIAL_ROWS,
-      })
-      .then(({ sessionId }) => {
-        if (this.#disposed || this.#tabs.tab(tabId) === undefined) {
-          this.#pendingBySession.delete(sessionId);
-          this.#releaseTabState(tabId);
-          this.#desktop.close(sessionId);
-          return;
-        }
-        this.#sessionByTab.set(tabId, sessionId);
-        this.#tabBySession.set(sessionId, tabId);
-        this.#update(tabId, {
-          sessionId,
-          status: "running",
-        });
-
-        const pending = this.#pendingBySession.get(sessionId) ?? [];
-        this.#pendingBySession.delete(sessionId);
-        for (const event of pending) this.#receive(event);
-
-        const input = this.#pendingWrites.get(tabId);
-        this.#pendingWrites.delete(tabId);
-        if (input !== undefined) {
-          this.#desktop.write({ sessionId, data: input });
-        }
-        const resize = this.#pendingResize.get(tabId);
-        this.#pendingResize.delete(tabId);
-        if (resize !== undefined) {
-          this.#desktop.resize({ sessionId, ...resize });
-        }
-      })
-      .catch((error: unknown) => {
-        if (this.#tabs.tab(tabId) === undefined) {
-          this.#releaseTabState(tabId);
-          return;
-        }
-        const message =
-          error instanceof Error ? error.message : String(error);
-        this.#update(tabId, {
-          status: "error",
-          error: message,
-        });
-        this.#notify(tabId, { type: "error", message });
-      });
-    return tabId;
-  }
-
-  subscribe(
-    tabId: string,
-    listener: TerminalTabListener,
-  ): () => void {
-    let listeners = this.#listeners.get(tabId);
-    if (listeners === undefined) {
-      listeners = new Set();
-      this.#listeners.set(tabId, listeners);
-    }
-    listeners.add(listener);
-    const buffered = this.#bufferByTab.get(tabId);
-    if (buffered !== undefined) {
-      this.#bufferByTab.delete(tabId);
-      listener.data?.(buffered);
-    }
+  connect(service: DshTerminals, ui: DshTerminalUI): () => void {
+    this.#service = service;
+    this.#ui = ui;
+    this.#sync();
+    this.#emit();
     return () => {
-      const current = this.#listeners.get(tabId);
-      current?.delete(listener);
-      if (current?.size === 0) this.#listeners.delete(tabId);
+      if (this.#service !== service) return;
+      this.#service = undefined;
+      this.#ui = undefined;
+      for (const entry of this.#entries.values()) { entry.unsubscribe?.(); entry.reference.release(); }
+      this.#entries.clear();
+      service.retainTabs([], OWNER);
+      this.#emit();
     };
   }
 
-  write(tabId: string, data: string): void {
-    const sessionId = this.#sessionByTab.get(tabId);
-    if (sessionId === undefined) {
-      this.#pendingWrites.set(
-        tabId,
-        appendBounded(
-          this.#pendingWrites.get(tabId) ?? "",
-          data,
-        ),
-      );
-      return;
+  create(title: string): string | undefined {
+    if (this.#disposed) return;
+    const sessionId = mainSessionId(this.sessions.list.getSnapshot());
+    const contentId = newContentId();
+    const id = this.tabs.open<TerminalTabPayload>({ kind: "terminal", key: contentId, title, payload: { sessionId, contentId } });
+    if (!sessionId && !this.#startingSession) {
+      this.#startingSession = true;
+      this.startSession();
     }
-    this.#desktop.write({ sessionId, data });
+    return id;
   }
 
-  resize(tabId: string, cols: number, rows: number): void {
-    const sessionId = this.#sessionByTab.get(tabId);
-    if (sessionId === undefined) {
-      this.#pendingResize.set(tabId, { cols, rows });
-      return;
-    }
-    this.#desktop.resize({ sessionId, cols, rows });
+  restart(tab: TerminalTab): void {
+    const contentId = newContentId();
+    this.tabs.open({ kind: "terminal", key: contentId, title: tab.title,
+      payload: { sessionId: tab.payload.sessionId, contentId } });
+    this.tabs.close(tab.id);
+  }
+
+  save(tab: ManagedTab): unknown {
+    if (!isTerminalTab(tab)) return undefined;
+    return { ...tab.payload, terminalId: this.model(tab.id)?.id ?? tab.payload.terminalId };
+  }
+
+  restore(tab: ManagedTab): void {
+    const row = tab.payload as Partial<TerminalTabPayload> | null;
+    if (!row || typeof row.sessionId !== "string" || typeof row.contentId !== "string" || !row.contentId.startsWith("minke-terminal:") || typeof row.terminalId !== "string") return;
+    this.tabs.restore({ ...tab, payload: { sessionId: row.sessionId, contentId: row.contentId, terminalId: row.terminalId } });
   }
 
   dispose(): void {
-    if (this.#disposed) return;
     this.#disposed = true;
-    this.#unsubscribeTerminal();
-    this.#unsubscribeTabs();
-    for (const sessionId of this.#sessionByTab.values()) {
-      this.#desktop.close(sessionId);
-    }
-    this.#sessionByTab.clear();
-    this.#tabBySession.clear();
+    this.#releaseTabs();
+    this.#releaseSessions();
+    for (const entry of this.#entries.values()) { entry.unsubscribe?.(); entry.reference.release(); }
+    this.#entries.clear();
+    this.#service?.retainTabs([], OWNER);
     this.#listeners.clear();
-    this.#bufferByTab.clear();
-    this.#pendingBySession.clear();
-    this.#pendingWrites.clear();
-    this.#pendingResize.clear();
   }
 
-  #receive(event: TerminalEvent): void {
-    const tabId = this.#tabBySession.get(event.sessionId);
-    if (tabId === undefined) {
-      const pending = this.#pendingBySession.get(event.sessionId) ?? [];
-      pending.push(event);
-      this.#pendingBySession.set(event.sessionId, pending.slice(-64));
-      return;
-    }
-    if (event.type === "data") {
-      this.#notify(tabId, event);
-      return;
-    }
-    if (event.type === "error") {
-      this.#update(tabId, {
-        status: "error",
-        error: event.message,
-      });
-      this.#notify(tabId, event);
-      return;
-    }
-    this.#update(tabId, {
-      status: "exited",
-      exitCode: event.exitCode,
-    });
-    this.#notify(tabId, event);
-    this.#sessionByTab.delete(tabId);
-    this.#tabBySession.delete(event.sessionId);
-  }
-
-  #notify(
-    tabId: string,
-    event:
-      | { type: "data"; data: string }
-      | { type: "exit"; exitCode?: number }
-      | { type: "error"; message: string },
-  ): void {
-    const listeners = this.#listeners.get(tabId);
-    if (event.type === "data" && (listeners?.size ?? 0) === 0) {
-      this.#bufferByTab.set(
-        tabId,
-        appendBounded(
-          this.#bufferByTab.get(tabId) ?? "",
-          event.data,
-        ),
-      );
-      return;
-    }
-    for (const listener of listeners ?? []) {
-      if (event.type === "data") listener.data?.(event.data);
-      else if (event.type === "exit") {
-        listener.exit?.(event.exitCode);
-      } else {
-        listener.error?.(event.message);
+  #sync(): void {
+    const service = this.#service;
+    if (!service || this.#syncing || this.#disposed) return;
+    this.#syncing = true;
+    try {
+      const current = mainSessionId(this.sessions.list.getSnapshot());
+      if (current) this.#startingSession = false;
+      for (const tab of this.tabs.getSnapshot().tabs.filter(isTerminalTab)) {
+        if (!tab.payload.sessionId && current) this.tabs.update(tab.id, { payload: { ...tab.payload, sessionId: current } });
       }
-    }
-  }
-
-  #update(
-    tabId: string,
-    patch: Partial<TerminalTabPayload>,
-  ): void {
-    const tab = this.#tabs.tab(tabId);
-    if (tab === undefined || !isTerminalTab(tab)) return;
-    this.#tabs.update<TerminalTabPayload>(tabId, {
-      payload: {
-        ...tab.payload,
-        ...patch,
-      },
-    });
-  }
-
-  #releaseClosedTabs(): void {
-    const trackedTabs = new Set([
-      ...this.#sessionByTab.keys(),
-      ...this.#listeners.keys(),
-      ...this.#bufferByTab.keys(),
-      ...this.#pendingWrites.keys(),
-      ...this.#pendingResize.keys(),
-    ]);
-    for (const tabId of trackedTabs) {
-      if (this.#tabs.tab(tabId) !== undefined) continue;
-      const sessionId = this.#sessionByTab.get(tabId);
-      if (sessionId !== undefined) {
-        this.#desktop.close(sessionId);
-        this.#sessionByTab.delete(tabId);
-        this.#tabBySession.delete(sessionId);
-        this.#pendingBySession.delete(sessionId);
+      const tabs = this.tabs.getSnapshot().tabs.filter(isTerminalTab);
+      for (const [id, previous] of this.#knownTabs) {
+        if (tabs.some(tab => tab.id === id)) continue;
+        const entry = this.#entries.get(id);
+        entry?.unsubscribe?.();
+        if (previous.payload.sessionId) {
+          service.close(previous.payload.sessionId, id, previous.payload.contentId, entry?.model?.id ?? previous.payload.terminalId);
+        }
+        entry?.reference.release();
+        this.#entries.delete(id);
       }
-      this.#releaseTabState(tabId);
-    }
+      this.#knownTabs = new Map(tabs.map(tab => [tab.id, tab]));
+      service.retainTabs(tabs.flatMap(tab => tab.payload.sessionId ? [{ sessionId: tab.payload.sessionId, tabId: tab.id, contentId: tab.payload.contentId }] : []), OWNER);
+      for (const tab of tabs) {
+        const { sessionId } = tab.payload;
+        if (!sessionId || this.#entries.has(tab.id) || !this.sessions.list.getSnapshot().byId[sessionId]) continue;
+        const reference = this.sessions.retain(sessionId, { source: "minkeTerminal" });
+        const entry: Entry = { reference };
+        this.#entries.set(tab.id, entry);
+        void reference.ready.then(() => {
+          if (this.#disposed || this.#service !== service || this.#entries.get(tab.id) !== entry) return;
+          const model = service.view(sessionId, tab.id, tab.payload.contentId, tab.payload.terminalId);
+          entry.model = model;
+          const changed = (): void => {
+            const title = model.state.getSnapshot().title || tab.title;
+            if (this.tabs.tab(tab.id)?.title !== title) this.tabs.update(tab.id, { title });
+            this.#emit();
+          };
+          entry.unsubscribe = model.state.subscribe(changed);
+          // Save the Host identity before a refresh can lose the binding.
+          this.tabs.update(tab.id, { payload: { ...tab.payload, terminalId: model.id } });
+          changed();
+        }).catch(error => {
+          if (this.#entries.get(tab.id) === entry) {
+            this.tabs.update(tab.id, { payload: { ...tab.payload, error: error instanceof Error ? error.message : String(error) } });
+            this.#emit();
+          }
+        });
+      }
+    } finally { this.#syncing = false; }
   }
 
-  #releaseTabState(tabId: string): void {
-    this.#listeners.delete(tabId);
-    this.#bufferByTab.delete(tabId);
-    this.#pendingWrites.delete(tabId);
-    this.#pendingResize.delete(tabId);
-  }
+  #emit(): void { this.#revision++; for (const listener of this.#listeners) listener(); }
 }

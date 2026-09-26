@@ -47,12 +47,11 @@ const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/host/file-manager",
   "@minke/harness-overlay/session-export-contract",
   "@minke/harness-overlay/data-home-contract",
-  "@minke/harness-overlay/plugin-install-contract",
+  "@minke/harness-overlay/plugin-recovery-contract",
   "@minke/harness-overlay/remote-hub-contract",
   "@minke/harness-overlay/shortcut-contract",
   "@minke/harness-overlay/tabs/contract",
   "@minke/harness-overlay/tabs/files-contract",
-  "@minke/harness-overlay/tabs/terminal-contract",
   "@minke/harness-overlay/tabs/web-link-contract",
   "@minke/harness-overlay/terminal-settings-contract",
   "@minke/harness-overlay/trusted-host-control-contract",
@@ -66,12 +65,16 @@ const privateDesktopMainModules = [
   {
     facade: resolve(
       projectRoot,
-      "desktop/main/plugin-installation.ts",
+      "desktop/main/plugin-recovery.ts",
     ),
     root: resolve(
       projectRoot,
-      "desktop/main/plugin-installation",
+      "desktop/main/plugin-recovery",
     ),
+  },
+  {
+    facade: resolve(projectRoot, "desktop/main/profile-migration.ts"),
+    root: resolve(projectRoot, "desktop/main/profile-migration"),
   },
 ];
 
@@ -173,7 +176,7 @@ test("desktop imports only the overlay's explicit shared modules", () => {
 test("desktop main implementation modules stay behind their facades", () => {
   const knownViolation = {
     path: resolve(projectRoot, "desktop/main/main.ts"),
-    specifier: "./plugin-installation/profile.ts",
+    specifier: "./profile-migration/command.ts",
   };
   assert.deepEqual(
     privateDesktopMainImportViolations([knownViolation]),

@@ -22,8 +22,7 @@
     "src/host",
     "src/web-search",
     "src/tabs/contract.ts",
-    "src/tabs/files-contract.ts",
-    "src/tabs/terminal-contract.ts"
+    "src/tabs/files-contract.ts"
   ],
   "references": [
     {

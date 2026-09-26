@@ -1,3 +1,4 @@
+import { mainSessionId, type HarnessSessionList } from "../core/sessions.ts";
 import {
   RadioTower,
   ShieldCheck,
@@ -197,12 +198,7 @@ function ConnectionActivity({
   );
 }
 
-interface SessionListSelection {
-  readonly current: string | undefined;
-  readonly byId: Readonly<
-    Record<string, { readonly blank?: boolean } | undefined>
-  >;
-}
+
 
 export interface RemoteHubActionProps {
   readonly location?: "fallback" | "session";
@@ -213,7 +209,7 @@ export interface RemoteHubActionProps {
 export interface NewSessionRemoteHubActionProps
   extends RemoteHubActionProps {
   readonly useSessions: <T>(
-    selector: (state: SessionListSelection) => T,
+    selector: (state: HarnessSessionList) => T,
   ) => T;
 }
 
@@ -335,8 +331,8 @@ export function NewSessionRemoteHubAction({
   useSessions,
 }: NewSessionRemoteHubActionProps): ReactNode {
   const isNewSession = useSessions((state) => {
-    if (state.current === undefined) return true;
-    return state.byId[state.current]?.blank === true;
+    const sessionId = mainSessionId(state);
+    return sessionId === undefined || state.byId[sessionId]?.blank === true;
   });
   const hasSessionTrigger = useSyncExternalStore(
     runtime.subscribe,

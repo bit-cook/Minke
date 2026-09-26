@@ -13,9 +13,13 @@ import { applyHarnessRuntimePatches, resolveHarnessRuntimePatches, verifyHarness
 import { TabsRuntime } from "@minke/harness-overlay/client/tabs/runtime.ts";
 import { TabRendererRegistry } from "@minke/harness-overlay/client/tabs/registry.ts";
 import { NativeTabsRuntime } from "@minke/harness-overlay/client/tabs/native/runtime.ts";
+import { installNativeTabs } from "@minke/harness-overlay/client/tabs/native/install.tsx";
 import { nativeContentId } from "@minke/harness-overlay/client/tabs/native/contract.ts";
 import { subtractRect } from "@minke/harness-overlay/client/tabs/native/viewport.ts";
 import { bindDrawerFocus } from "@minke/harness-overlay/client/tabs/native/drawer-focus.ts";
+import { ResourceRegistry } from "../vendor/deepseek-harness/packages/client/resources/src/client/resources.ts";
+import { minkeTabResourceProvider } from "@minke/harness-overlay/client/tabs/native/resources.ts";
+import { persistTabs } from "@minke/harness-overlay/client/tabs/persistence.ts";
 import { JSDOM } from "../vendor/deepseek-harness/node_modules/jsdom/lib/api.js";
 
 const projectRoot = resolve(import.meta.dirname, "..");
@@ -32,7 +36,7 @@ await rm(runtimeRoot, { recursive: true, force: true });
 
 const tick = async () => { await new Promise(resolve => setTimeout(resolve, 25)); };
 
-async function boot(source = patched) {
+async function boot(source = patched, savedStates = new Map()) {
   let plugin;
   const dependencies = {
     react: React, "react/jsx-runtime": jsx, "react-dom": ReactDOM,
@@ -58,7 +62,10 @@ async function boot(source = patched) {
   });
   ctx.provide("locale", { bind: () => key => key, register: () => () => {} });
   ctx.provide("layout", { openRightbar() {}, closeRightbar() {} });
-  ctx.provide("resources", { pin() {} });
+  ctx.provide("resources", new ResourceRegistry(ctx));
+  ctx.provide("sessions", {});
+  ctx.provide("uiSession", { adapter: { current: { getSnapshot: () => ({ key: undefined }), subscribe: () => () => {} } } });
+  ctx.provide("shortcuts", { register: () => () => {}, closeWindow: async () => {} });
   const fiber = ctx.plugin(plugin);
   await fiber.await();
   const seat = registered.find(entry => entry.name === "rightbar.session");
@@ -69,8 +76,13 @@ async function boot(source = patched) {
     release?.();
     if (id === undefined) { release = undefined; return; }
     let instance = instances.get(id);
-    if (!instance) { instance = seat.store.create(id); instances.set(id, instance); instance.actions.open(id); }
-    const bind = () => ctx.sidebarRight.bind({ sessionId: id, actions: instance.actions, surfaces: instance.getSnapshot().bySession, canSplitPane: () => true });
+    if (!instance) {
+      instance = seat.store.create(id);
+      if (savedStates.has(id)) instance.store.update(draft => Object.assign(draft, structuredClone(savedStates.get(id))));
+      instances.set(id, instance);
+      instance.actions.open(id);
+    }
+    const bind = () => ctx.sidebarRight.bind({ sessionId: id, actions: instance.actions, surfaces: instance.getSnapshot().bySession, canSplitPane: () => true, openWithFocus: open => { open(); } });
     let releaseBinding = bind();
     const unsubscribe = instance.subscribe(() => { releaseBinding(); releaseBinding = bind(); });
     release = () => { unsubscribe(); releaseBinding(); };
@@ -79,24 +91,187 @@ async function boot(source = patched) {
   return { ctx, instances, mount, async dispose() { release?.(); await fiber.dispose(); } };
 }
 
-async function workspace(t, { beforeClose = () => true, source = patched } = {}) {
+async function workspace(t, { beforeClose = () => true, source = patched, activate, inactive = false, host = { showPanel() {}, hidePanel() {} } } = {}) {
   const harness = await boot(source);
-  const runtime = new TabsRuntime({ showPanel() {}, hidePanel() {} });
+  const runtime = new TabsRuntime(host);
   const renderers = new TabRendererRegistry();
   for (const kind of ["web", "files", "terminal"]) {
     renderers.register({ kind, renderIcon: () => null, renderView: () => null, beforeClose });
     harness.ctx.sidebarRightTabs.register({ id: `spec/${kind}`, kind: `minke.${kind}`, title: () => kind });
   }
   harness.ctx.sidebarRightTabs.register({ id: "spec/text", kind: "text", patterns: ["dsh-resource://file/**"], title: () => "Native preview" });
-  const native = new NativeTabsRuntime(runtime, renderers);
+  const releaseResources = harness.ctx.resources.register(minkeTabResourceProvider(runtime));
+  const native = new NativeTabsRuntime(runtime, renderers, activate);
   const release = native.connect(harness.ctx.sidebarRight);
-  t.after(async () => { release(); await harness.dispose(); });
-  const instance = harness.mount("session-a");
+  t.after(async () => { release(); releaseResources(); await harness.dispose(); });
+  const instance = inactive ? undefined : harness.mount("session-a");
   await tick();
   const surface = (id = "session-a") => harness.instances.get(id).getSnapshot().bySession[id].layout;
   const record = (id, sessionId) => Object.values(surface(sessionId).tabs).find(tab => tab.contentId === nativeContentId(id));
-  return { ...harness, runtime, native, instance, surface, record };
+  return { ...harness, runtime, native, instance, surface, record, release };
 }
+
+test("connected native Sidebar queues Terminal and Start while outside the Conversation", async t => {
+  let activations = 0;
+  const w = await workspace(t, { inactive: true, activate: () => { activations++; } });
+  w.ctx.sidebarRightTabs.register({ id: "spec/native-terminal", kind: "terminal", title: () => "Terminal" });
+  assert.equal(w.native.connected, true);
+  assert.equal(w.native.active, false);
+  assert.equal(activations, 0, "connecting on Plugins must not navigate away from it");
+  assert.doesNotThrow(() => w.native.openNative("terminal"));
+  w.native.openNative("guide");
+  assert.equal(activations, 1, "requests share the pending Conversation activation");
+  assert.equal(w.instances.size, 0, "no detached native surface is written");
+  w.mount("session-a");
+  await tick();
+  const kinds = Object.values(w.surface().tabs).map(tab => tab.kind);
+  assert.ok(kinds.includes("terminal"));
+  assert.ok(kinds.includes("guide"));
+  assert.equal(w.native.active, true);
+});
+
+test("pending custom content keeps its draft and never opens the fallback host", async t => {
+  let activations = 0;
+  let fallback = 0;
+  const w = await workspace(t, { inactive: true, activate: () => { activations++; },
+    host: { showPanel() { fallback++; }, hidePanel() { fallback++; } } });
+  const payload = { draft: "unsaved" };
+  const id = w.runtime.open({ kind: "files", key: "pending", title: "Draft", payload });
+  w.runtime.activate(id);
+  w.runtime.show();
+  assert.equal(fallback, 0);
+  assert.equal(activations, 1);
+  assert.equal(w.runtime.tab(id).payload, payload);
+  w.mount("session-a");
+  await tick();
+  assert.ok(w.record(id));
+  assert.equal(w.runtime.getSnapshot().activeId, id);
+  assert.equal(w.surface().expanded, true);
+  assert.equal(w.runtime.tab(id).payload, payload);
+});
+
+test("native requests wait through an unmount before the queued sync runs", async t => {
+  let activations = 0;
+  const w = await workspace(t, { activate: () => { activations++; } });
+  w.mount(undefined);
+  assert.doesNotThrow(() => w.native.openNative("guide"));
+  assert.equal(activations, 1);
+  await tick();
+  assert.equal(w.native.connected, true);
+  assert.equal(w.native.active, false);
+  w.mount("session-a");
+  await tick();
+  assert.equal(w.surface().expanded, true);
+});
+
+test("toggling from Plugins restores the selected Sidebar tab instead of hiding an unmounted seat", async t => {
+  let activations = 0;
+  let fallback = 0;
+  const w = await workspace(t, {
+    activate: () => { activations++; },
+    host: { showPanel() { fallback++; }, hidePanel() { fallback++; } },
+  });
+  const payload = { draft: "unsaved before opening Plugins" };
+  const id = w.runtime.open({ kind: "files", key: "selected-draft", title: "Draft", payload });
+  assert.equal(w.runtime.getSnapshot().visible, true);
+  assert.equal(w.runtime.getSnapshot().activeId, id);
+  w.mount(undefined);
+  await tick();
+
+  w.runtime.toggle();
+  assert.equal(activations, 1, "the global-page shortcut must reveal the Conversation");
+  assert.equal(fallback, 0);
+  assert.equal(w.runtime.tab(id).payload, payload);
+  w.mount("session-a");
+  await tick();
+  assert.equal(w.surface().expanded, true);
+  assert.equal(w.runtime.getSnapshot().activeId, id);
+  assert.equal(w.runtime.tab(id).payload, payload);
+
+  w.runtime.toggle();
+  assert.equal(w.surface().expanded, false, "a mounted Sidebar still toggles closed");
+  w.runtime.toggle();
+  assert.equal(w.surface().expanded, true, "a mounted Sidebar still toggles open");
+  assert.equal(activations, 1);
+});
+
+test("disconnect clears pending requests and publishes connection state", async t => {
+  let activations = 0;
+  const w = await workspace(t, { inactive: true, activate: () => { activations++; } });
+  let notifications = 0;
+  w.native.subscribe(() => { notifications++; });
+  w.native.openNative("guide");
+  w.release();
+  assert.equal(w.native.connected, false);
+  assert.ok(notifications > 0);
+  const connectRevision = w.native.getSnapshot();
+  const disconnect = w.native.connect(w.ctx.sidebarRight);
+  assert.ok(w.native.getSnapshot() > connectRevision, "inactive connection changes must be observable");
+  w.mount("session-a");
+  await tick();
+  assert.equal(w.surface().expanded, false, "a disposed pending open cannot replay after reconnect");
+  assert.equal(activations, 1);
+  disconnect();
+});
+
+test("restoring and opening background content does not leave Settings", async t => {
+  let activations = 0;
+  let fallback = 0;
+  const w = await workspace(t, { inactive: true, activate: () => { activations++; },
+    host: { showPanel() { fallback++; }, hidePanel() { fallback++; } } });
+  const restored = { id: "tab-40", kind: "files", key: "restored", title: "Draft", payload: { draft: "retained" } };
+  w.runtime.restore(restored);
+  w.runtime.projectLayout([], restored.id, true);
+  w.runtime.syncPanel();
+  const background = w.runtime.open({ kind: "web", key: "background", title: "Background", payload: {} }, { activate: false });
+  w.runtime.hide();
+  assert.equal(activations, 0);
+  assert.equal(fallback, 0);
+  assert.equal(w.instances.size, 0);
+  w.mount("session-a");
+  await tick();
+  assert.ok(w.record(restored.id));
+  assert.ok(w.record(background));
+  assert.equal(activations, 0, "mounting and synchronizing content is not an activation request");
+});
+
+test("installing the native bridge activates the existing Conversation or starts one only on demand", async t => {
+  for (const selected of [true, false]) {
+    await t.test(selected ? "existing Conversation" : "no Conversation", async () => {
+      const harness = await boot();
+      const panels = [];
+      let starts = 0;
+      harness.ctx.layout.selectPanel = id => { panels.push(id); };
+      harness.ctx.sessions.list = { getSnapshot: () => ({ byId: selected
+        ? { "session-a": { retainedBy: { mainView: 1 } } }
+        : { "sidebar-only": { retainedBy: { sidebar: 1 } } } }) };
+      harness.ctx.provide("uiWorkspace", { startSession() { starts++; } });
+      const tabs = new TabsRuntime({ showPanel() { assert.fail("native owns the host"); }, hidePanel() {} });
+      let native;
+      const fiber = harness.ctx.plugin(scope => {
+        native = installNativeTabs(scope, tabs, new TabRendererRegistry(), {});
+      });
+      try {
+        await fiber.await();
+        await tick();
+        assert.equal(native.connected, true);
+        assert.deepEqual(panels, []);
+        assert.equal(starts, 0);
+        native.openNative("guide");
+        tabs.show();
+        assert.deepEqual(panels, [null]);
+        assert.equal(starts, selected ? 0 : 1);
+        harness.mount("session-a");
+        await tick();
+        assert.equal(native.active, true);
+        assert.equal(starts, selected ? 0 : 1);
+      } finally {
+        await fiber.dispose();
+        await harness.dispose();
+      }
+    });
+  }
+});
 
 test("native tab patch is required by the compatibility contract", async () => {
   const harness = await boot(upstream);
@@ -170,32 +345,29 @@ test("a failing or stale Start creator cannot redirect the next open", async t =
   assert.equal(staleCalled, false);
 });
 
-test("menu creation targets its docked pane and rejects stale menus", async t => {
+test("the add menu creates in its originating pane and rejects stale session targets", async t => {
   const w = await workspace(t);
   const first = w.runtime.open({ kind: "web", key: "first", title: "First", payload: {} });
   const firstPane = w.surface().activePaneId;
   const secondPane = w.ctx.sidebarRight.split();
-  assert.ok(secondPane);
   await tick();
-  const secondTabs = [...w.surface().nodes[secondPane].tabs];
+  w.ctx.sidebarRight.focus(w.record(first).id);
   let created;
-  w.native.createInPane("session-a", firstPane, () => {
-    created = w.runtime.open({ kind: "terminal", key: "menu", title: "Terminal", payload: {} });
+  w.native.createInPane("session-a", secondPane, () => {
+    created = w.runtime.open({ kind: "files", key: "menu", title: "Files", payload: {} });
   });
   await tick();
-  assert.deepEqual(w.surface().nodes[firstPane].tabs, [w.record(first).id, w.record(created).id]);
-  assert.deepEqual(w.surface().nodes[secondPane].tabs, secondTabs);
-  assert.throws(() => w.native.createInPane("session-a", firstPane, () => { throw new Error("failed creator"); }), /failed creator/);
-  w.ctx.sidebarRight.focus(secondTabs[0]);
+  assert.deepEqual(w.surface().nodes[firstPane].tabs, [w.record(first).id]);
+  assert.ok(w.surface().nodes[secondPane].tabs.includes(w.record(created).id));
+  assert.equal(w.surface().activePaneId, secondPane);
+  assert.throws(() => w.native.createInPane("session-a", secondPane, () => { throw new Error("creation failed"); }), /creation failed/);
+  w.ctx.sidebarRight.focus(w.record(first).id);
   const next = w.runtime.open({ kind: "web", key: "next", title: "Next", payload: {} });
-  await tick();
-  assert.ok(w.surface().nodes[secondPane].tabs.includes(w.record(next).id), 'a later open does not inherit a failed menu target');
-  w.mount("session-b");
-  await tick();
-  let called = false;
-  w.native.createInPane("session-a", firstPane, () => { called = true; });
-  w.native.createInPane("session-b", "removed-pane", () => { called = true; });
-  assert.equal(called, false, 'session changes and missing panes invalidate the menu');
+  assert.ok(w.surface().nodes[firstPane].tabs.includes(w.record(next).id), "a failed creator must release the placement override");
+  let staleCalled = false;
+  w.native.createInPane("other-session", secondPane, () => { staleCalled = true; });
+  w.native.createInPane("session-a", "closed-pane", () => { staleCalled = true; });
+  assert.equal(staleCalled, false);
 });
 
 test("native close, replacement and undo respect an unsaved draft veto", async t => {
@@ -265,6 +437,44 @@ test("global content survives session changes, split, float, dock and collapse",
   assert.equal(w.record(id, "session-b"), undefined);
 });
 
+test("hydrating custom content before connecting retains the native saved layout on refresh", async t => {
+  const w = await workspace(t);
+  const savedContent = new Map();
+  const storage = { getItem: key => savedContent.get(key) ?? null, setItem: (key, value) => savedContent.set(key, value) };
+  const registry = new TabRendererRegistry();
+  const renderer = runtime => ({ kind: "web", renderIcon: () => null, renderView: () => null,
+    persistence: { save: tab => tab.payload, restore: tab => runtime.restore(tab) } });
+  registry.register(renderer(w.runtime));
+  const stop = persistTabs(w.runtime, registry, "right", storage).start();
+  const id = w.runtime.open({ kind: "web", key: "browser", title: "Browser", payload: { url: "https://example.com/" } });
+  w.ctx.sidebarRight.split();
+  w.ctx.sidebarRight.openResource("dsh-resource://file/example.md");
+  await tick();
+  const saved = structuredClone(w.instance.getSnapshot());
+  const layoutBefore = structuredClone(w.surface());
+  stop();
+  const refresh = async hydrate => {
+    const harness = await boot(patched, new Map([["session-a", saved]]));
+    const tabs = new TabsRuntime({ showPanel() {}, hidePanel() {} });
+    const renderers = new TabRendererRegistry();
+    renderers.register(renderer(tabs));
+    if (hydrate) persistTabs(tabs, renderers, "right", storage);
+    harness.ctx.sidebarRightTabs.register({ id: "spec/web", kind: "minke.web", title: () => "Web" });
+    harness.ctx.sidebarRightTabs.register({ id: "spec/text", kind: "text", patterns: ["dsh-resource://file/**"], title: () => "Native" });
+    const releaseResources = harness.ctx.resources.register(minkeTabResourceProvider(tabs));
+    const native = new NativeTabsRuntime(tabs, renderers);
+    const release = native.connect(harness.ctx.sidebarRight);
+    const instance = harness.mount("session-a");
+    await tick();
+    const layout = structuredClone(instance.getSnapshot().bySession["session-a"].layout);
+    release(); releaseResources(); await harness.dispose();
+    return layout;
+  };
+  const withoutContent = await refresh(false);
+  assert.equal(Object.values(withoutContent.tabs).some(tab => tab.contentId === nativeContentId(id)), false, "negative control reproduces the former lost tab");
+  assert.deepEqual(await refresh(true), layoutBefore, "both custom and native tabs retain ids, panes and selection");
+});
+
 test("extension cleanup removes native seats before local ids can be reused", async t => {
   const harness = await boot();
   t.after(() => harness.dispose());
@@ -319,4 +529,23 @@ test("fallback drawer keyboard navigation includes its stable content host", () 
   press("Escape");
   assert.equal(closed, 1);
   dom.window.close();
+});
+
+test("native pins expose Minke resources and release without disposing global content", async t => {
+  const w = await workspace(t);
+  const id = w.runtime.open({ kind: "web", key: "resource", title: "Resource", payload: {} });
+  const source = w.ctx.resources.source(nativeContentId(id));
+  await tick();
+  assert.deepEqual(source.getSnapshot().value, { id, kind: "web", title: "Resource" });
+  assert.equal(source.getSnapshot().status, "live");
+  w.mount(undefined);
+  await tick();
+  assert.ok(w.runtime.tab(id), "leaving a session seat must retain the browser instance");
+  w.mount("session-a");
+  await tick();
+  assert.equal(source.getSnapshot().status, "live");
+  w.runtime.close(id);
+  await tick();
+  assert.equal(w.runtime.tab(id), undefined);
+  assert.equal(source.getSnapshot().value, undefined, "closing its final seat releases the resource pin");
 });

@@ -6852,9 +6852,8 @@ test("blank-session Remote fallback yields to the live Session header trigger", 
     t: (key) => remoteHubEn[key],
     useSessions(selector) {
       return selector({
-        current: "session-1",
         byId: {
-          "session-1": { blank: true },
+          "session-1": { blank: true, retainedBy: { mainView: 1 } },
         },
       });
     },
@@ -7242,7 +7241,7 @@ test("Remote Hub uses grouped sidebar navigation and stable detail panels", asyn
   assert.match(trigger, /aria-haspopup="dialog"/u);
   assert.match(trigger, /aria-expanded="false"/u);
   assert.match(trigger, /viewBox="0 0 16 16"/u);
-  assert.match(trigger, /<g data-minke-remote-hub-indicator="true">/u);
+  assert.match(trigger, /<g data-minke-remote-hub-indicator="true" stroke="currentColor">/u);
   assert.doesNotMatch(trigger, /<span[^>]*data-minke-remote-hub-indicator/u);
   assert.match(
     trigger,

@@ -27,7 +27,8 @@ export interface ResponsiveRightTabsHostOptions {
 
 /**
  * Owns the start-page/global-panel fallback. The native session Sidebar
- * owns its own frame geometry; this host yields while that seat is mounted.
+ * owns its own frame geometry; this host yields while its service is connected,
+ * including pages where the Session seat is temporarily hidden.
  */
 export class ResponsiveRightTabsHost
   implements TabsHost, RightTabsPresentationPort {
@@ -59,7 +60,7 @@ export class ResponsiveRightTabsHost
       ? "drawer"
       : "docked";
 
-  /** The native seat owns frame geometry while a session Sidebar is mounted. */
+  /** DSH owns frame geometry as long as its Sidebar service is connected. */
   setNativeActive(active: boolean): void {
     if (this.#nativeActive === active) return;
     this.#nativeActive = active;

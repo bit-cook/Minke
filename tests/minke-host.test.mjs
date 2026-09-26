@@ -25,7 +25,6 @@ import {
 } from "@minke/harness-overlay/pwa-contract.ts";
 import {
   browserFilesPort,
-  browserTerminalPort,
   browserTabsPort,
 } from "@minke/harness-overlay/client/host/workspace.ts";
 import {
@@ -74,11 +73,6 @@ function hostCapabilities(root = "/host/home") {
       available: true,
       embeddedWeb: false,
       state: "client",
-    },
-    terminal: {
-      available: true,
-      resize: true,
-      transport: "long-poll",
     },
   };
 }
@@ -1782,6 +1776,11 @@ test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
   const capabilities = await call("capabilities", {});
   assert.equal(capabilities.ok, true);
   assert.deepEqual(capabilities.value, hostCapabilities(root));
+  for (const endpoint of ['terminal.create', 'terminal.write', 'terminal.resize', 'terminal.read', 'terminal.close']) {
+    const retired = await call(endpoint, {});
+    assert.equal(retired.ok, false, `${endpoint} belongs to DSH, not the Minke Host`);
+    assert.equal(retired.error.code, 'bad-request');
+  }
 
   const listing = await call("files.list", {});
   assert.equal(listing.ok, true);
@@ -1965,92 +1964,4 @@ test("browser Host never replays a failed file write after a successful handshak
   }, memoryStorage());
   await assert.rejects(files.write({ path: "/host/home/notes.txt", content: "edited", expectedVersion: `sha256:${"a".repeat(64)}` }), /connection lost/u);
   assert.deepEqual(calls, ["capabilities", "files.write"]);
-});
-
-test("browser Terminal port long-polls Host output and closes settled sessions", async () => {
-  const calls = [];
-  const closed = Promise.withResolvers();
-  const connection = {
-    rpc: {
-      async call(channel, endpoint, payload) {
-        calls.push([channel, endpoint, payload]);
-        if (endpoint === "capabilities") {
-          return { ok: true, value: hostCapabilities() };
-        }
-        if (endpoint === "terminal.create") {
-          return {
-            ok: true,
-            value: { sessionId: "host-terminal-1" },
-          };
-        }
-        if (endpoint === "terminal.read") {
-          return {
-            ok: true,
-            value: {
-              cursor: 2,
-              done: true,
-              truncated: false,
-              events: [
-                {
-                  type: "data",
-                  sessionId: "host-terminal-1",
-                  data: "$ ",
-                },
-                {
-                  type: "exit",
-                  sessionId: "host-terminal-1",
-                  exitCode: 0,
-                },
-              ],
-            },
-          };
-        }
-        if (
-          endpoint === "terminal.close" ||
-          endpoint === "terminal.resize" ||
-          endpoint === "terminal.write"
-        ) {
-          if (endpoint === "terminal.close") closed.resolve();
-          return { ok: true, value: null };
-        }
-        throw new Error(`unexpected endpoint ${endpoint}`);
-      },
-    },
-  };
-  const terminal = browserTerminalPort(connection);
-  const events = [];
-  const settled = Promise.withResolvers();
-  const unsubscribe = terminal.subscribe((event) => {
-    events.push(event);
-    if (event.type === "exit") settled.resolve();
-  });
-
-  assert.deepEqual(
-    await terminal.create({ cols: 80, rows: 24 }),
-    { sessionId: "host-terminal-1" },
-  );
-  await settled.promise;
-  await closed.promise;
-  assert.deepEqual(events, [
-    {
-      type: "data",
-      sessionId: "host-terminal-1",
-      data: "$ ",
-    },
-    {
-      type: "exit",
-      sessionId: "host-terminal-1",
-      exitCode: 0,
-    },
-  ]);
-  assert.deepEqual(
-    calls.map(([, endpoint]) => endpoint),
-    [
-      "capabilities",
-      "terminal.create",
-      "terminal.read",
-      "terminal.close",
-    ],
-  );
-  unsubscribe();
 });

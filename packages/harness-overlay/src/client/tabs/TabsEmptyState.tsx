@@ -38,7 +38,7 @@ export function TabsEmptyState({
         />
       )}
       <div className="minke-tabs-empty__options">
-        {renderers.creators().map((option) => (
+        {renderers.creators().filter(option => !option.nativeKind).map((option) => (
           <button
             key={option.id}
             type="button"

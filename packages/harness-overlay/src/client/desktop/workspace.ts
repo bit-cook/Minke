@@ -1,6 +1,6 @@
 import {
-  parseInstalledPluginsSnapshot,
-} from "@minke/harness-overlay/plugin-install-contract.ts";
+  parsePluginManagementSettings,
+} from "@minke/harness-overlay/plugin-recovery-contract.ts";
 import {
   parseAgentBrowserNavigationRequest,
   parseAgentBrowserControlRequest,
@@ -46,22 +46,13 @@ import {
   parseFileManagerWriteResult,
   type FileManagerViewStateUpdate,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
-import {
-  parseTerminalCreateRequest,
-  parseTerminalCreateResult,
-  parseTerminalEvent,
-  parseTerminalResizeRequest,
-  parseTerminalSessionId,
-  parseTerminalWriteRequest,
-} from "@minke/harness-overlay/tabs/terminal-contract.ts";
 import type {
   DesktopBridgeWindow,
   DesktopAgentBrowserPort,
   DesktopFilesPort,
-  PluginInstallerPort,
+  PluginRecoveryPort,
   DesktopSessionLogsPort,
   DesktopTabsPort,
-  DesktopTerminalPort,
 } from "./contracts.ts";
 
 /** Adapt main-owned Agent Browser sessions to the Tabs projection. */
@@ -218,69 +209,20 @@ export function desktopAgentBrowserPort(
   };
 }
 
-/** Adapt plugin management exposed by the isolated preload. */
-export function desktopPluginInstallerPort(
-  source: DesktopBridgeWindow =
-    window as unknown as DesktopBridgeWindow,
-): PluginInstallerPort {
-  const bridge = source.minkeDesktop?.pluginInstaller;
-  if (bridge === undefined) {
-    return {
-      available: false,
-      async install() {
-        throw new Error(
-          "Minke desktop plugin installer bridge is unavailable",
-        );
-      },
-      async restart() {
-        throw new Error(
-          "Minke desktop plugin installer bridge is unavailable",
-        );
-      },
-      async uninstall() {
-        throw new Error(
-          "Minke desktop plugin installer bridge is unavailable",
-        );
-      },
-      async setEnabled() {
-        throw new Error(
-          "Minke desktop plugin installer bridge is unavailable",
-        );
-      },
-      async setSafeMode() {
-        throw new Error(
-          "Minke desktop plugin installer bridge is unavailable",
-        );
-      },
-      async readInstalled() {
-        throw new Error(
-          "Minke desktop plugin installer bridge is unavailable",
-        );
-      },
-    };
-  }
-  return {
+/** Adapt desktop-only recovery; package operations use DSH's native page. */
+export function desktopPluginRecoveryPort(
+  source: DesktopBridgeWindow = window as unknown as DesktopBridgeWindow,
+): PluginRecoveryPort {
+  const bridge = source.minkeDesktop?.pluginRecovery;
+  const unavailable = async (): Promise<never> => {
+    throw new Error("Minke desktop plugin recovery bridge is unavailable");
+  };
+  return bridge === undefined ? {
+    available: false, setSafeMode: unavailable, readSettings: unavailable,
+  } : {
     available: true,
-    async install(command) {
-      await bridge.install(command);
-    },
-    async restart() {
-      await bridge.restart();
-    },
-    async uninstall(name) {
-      await bridge.uninstall(name);
-    },
-    async setEnabled(name, enabled) {
-      await bridge.setEnabled(name, enabled);
-    },
-    async setSafeMode(enabled) {
-      await bridge.setSafeMode(enabled);
-    },
-    async readInstalled() {
-      return parseInstalledPluginsSnapshot(
-        await bridge.readInstalled(),
-      );
-    },
+    setSafeMode: enabled => bridge.setSafeMode(enabled),
+    async readSettings() { return parsePluginManagementSettings(await bridge.readSettings()); },
   };
 }
 
@@ -445,52 +387,6 @@ export function desktopFilesPort(
       if (bridge.watch === undefined) return () => {};
       return bridge.watch(paths, (event) => {
         listener(parseFileManagerChangeEvent(event));
-      });
-    },
-  };
-}
-
-/** Adapt the isolated preload bridge used by interactive Terminal tabs. */
-export function desktopTerminalPort(
-  source: DesktopBridgeWindow =
-    window as unknown as DesktopBridgeWindow,
-): DesktopTerminalPort {
-  const bridge = source.minkeDesktop?.terminal;
-  if (bridge === undefined) {
-    return {
-      available: false,
-      async create() {
-        throw new Error(
-          "Minke desktop Terminal bridge is unavailable",
-        );
-      },
-      write() {},
-      resize() {},
-      close() {},
-      subscribe() {
-        return () => {};
-      },
-    };
-  }
-  return {
-    available: true,
-    async create(request) {
-      return parseTerminalCreateResult(
-        await bridge.create(parseTerminalCreateRequest(request)),
-      );
-    },
-    write(request) {
-      bridge.write(parseTerminalWriteRequest(request));
-    },
-    resize(request) {
-      bridge.resize(parseTerminalResizeRequest(request));
-    },
-    close(sessionId) {
-      bridge.close(parseTerminalSessionId(sessionId));
-    },
-    subscribe(listener) {
-      return bridge.subscribe((event) => {
-        listener(parseTerminalEvent(event));
       });
     },
   };

@@ -19,7 +19,7 @@ export function NativeTabGuide({ native, renderers, createShortcuts, currentCwd,
   useSyncExternalStore(renderers.subscribe, renderers.getSnapshot, renderers.getSnapshot);
   useSyncExternalStore(createShortcuts.subscribe, createShortcuts.getSnapshot, createShortcuts.getSnapshot);
   const { tab } = useTabInfo();
-  const options = renderers.creators();
+  const options = renderers.creators().filter(option => option.nativeKind === undefined);
   if (options.length === 0) return null;
   return <section className="minke-tabs-native-guide__section" aria-labelledby={titleId}>
     <h2 id={titleId} className="minke-tabs-native-guide__heading">Minke</h2>

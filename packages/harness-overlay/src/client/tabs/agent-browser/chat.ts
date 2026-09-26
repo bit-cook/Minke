@@ -1,3 +1,4 @@
+import { mainSessionId } from "../../core/sessions.ts";
 import type {
   HarnessClientContext,
 } from "@minke/harness-overlay/client/core/context.ts";
@@ -321,6 +322,7 @@ function inputSnapshot(input: ComposerInput): ReturnType<
  */
 export function createAgentBrowserComposerBridge(
   sessions: HarnessClientContext["sessions"],
+  navigation: Pick<HarnessClientContext["uiWorkspace"], "openSession">,
 ): AgentBrowserComposerBridge {
   let binding: ComposerBinding | undefined;
   let referenceSequence = 0;
@@ -526,7 +528,7 @@ export function createAgentBrowserComposerBridge(
         );
         throw error;
       }
-      sessions.open(target.sessionId);
+      navigation.openSession(target.sessionId);
       return true;
     },
   };
@@ -591,7 +593,7 @@ export function createAgentBrowserChatPort(
   return {
     currentTarget() {
       const snapshot = sessions.list.getSnapshot();
-      const sessionId = snapshot.current;
+      const sessionId = mainSessionId(snapshot);
       if (sessionId === undefined) return undefined;
       const title = snapshot.byId[sessionId]?.title;
       return {

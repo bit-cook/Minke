@@ -31,9 +31,6 @@ import {
   planDataHomeMerge,
 } from "@minke/desktop/main/data-home-migration.ts";
 import {
-  PluginInstallationRuntime,
-} from "@minke/desktop/main/plugin-installation.ts";
-import {
   MinkeConfigStore,
 } from "@minke/desktop/main/minke-config.ts";
 import {
@@ -423,15 +420,10 @@ test("data-home merge reconciles authoritative metadata and preserves derived ca
     "@deepseek-ai/dsh-base",
     "dsh-example-plugin",
   ]);
-  const installed = await new PluginInstallationRuntime({
-    runtimeRoot: join(root, "unused-runtime"),
-    dshHome: target,
-    electronExecutable: process.execPath,
-  }).listInstalled();
-  assert.deepEqual(
-    installed.plugins.map(({ name, state }) => ({ name, state })),
-    [{ name: "dsh-example-plugin", state: "ready" }],
-  );
+  const installed = JSON.parse(await readFile(
+    join(target, "profiles", "web", "node_modules", "dsh-example-plugin", "package.json"), "utf8",
+  ));
+  assert.deepEqual(installed, { name: "dsh-example-plugin", version: "1.0.0" });
 
   const targetCache = JSON.parse(
     await readFile(

@@ -13,9 +13,7 @@ import type {
   PageTitleUpdatedEvent,
   WebviewTag,
 } from "electron";
-import {
-  TABS_WEB_PARTITION,
-} from "@minke/harness-overlay/tabs/contract.ts";
+import { configureWebGuest } from "./guest.ts";
 import {
   parseWebTabLocalPathRequest,
   TABS_WEB_LOCAL_PATH_CHANNEL,
@@ -58,6 +56,10 @@ export interface WebTabViewProps {
   active: boolean;
   controller: WebTabsController;
   t: WebTabsTranslate;
+  /** Presets decorate the common guest without owning its lifetime. */
+  decorateGuest?: (view: WebviewTag) => () => void;
+  allowPopups?: boolean;
+  annotations?: boolean;
 }
 
 /** One persistent Electron guest and its local failure recovery surface. */
@@ -66,6 +68,9 @@ export function WebTabView({
   active,
   controller,
   t,
+  decorateGuest,
+  allowPopups = true,
+  annotations = true,
 }: WebTabViewProps): ReactNode {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<WebviewTag | null>(null);
@@ -93,23 +98,11 @@ export function WebTabView({
     const view = host.ownerDocument.createElement(
       "webview",
     ) as WebviewTag;
-    view.className = "minke-tabs-view__guest";
-    view.setAttribute("allowpopups", "");
-    view.setAttribute("src", initialUrl);
-    view.setAttribute("partition", TABS_WEB_PARTITION);
-    view.setAttribute(
-      "webpreferences",
-      [
-        "contextIsolation=yes",
-        "nodeIntegration=no",
-        "sandbox=yes",
-        "webSecurity=yes",
-      ].join(","),
-    );
-    view.setAttribute("aria-label", tab.title);
+    configureWebGuest(view, { url: initialUrl, label: tab.title, allowPopups });
     viewRef.current = view;
 
     const detach = controller.attach(tab.id, view);
+    const releaseDecoration = decorateGuest?.(view);
     const handleStart = (): void => {
       controller.pageChanged(tab.id);
       syncNavigation(controller, tab.id, {
@@ -202,11 +195,12 @@ export function WebTabView({
       );
       view.removeEventListener("did-fail-load", handleFailure);
       view.removeEventListener("ipc-message", handleIpcMessage);
+      releaseDecoration?.();
       detach();
       view.remove();
       viewRef.current = null;
     };
-  }, [canCreateView, controller, tab.id]);
+  }, [canCreateView, controller, tab.id, decorateGuest, allowPopups]);
 
   useEffect(() => {
     viewRef.current?.setAttribute("aria-label", tab.title);
@@ -258,12 +252,12 @@ export function WebTabView({
           </div>
         </div>
       )}
-      <DomAnnotationOverlay
+      {annotations && <DomAnnotationOverlay
         tabId={tab.id}
         snapshot={annotation}
         controller={controller.annotation}
         labels={webAnnotationLabels(t)}
-      />
+      />}
     </div>
   );
 }

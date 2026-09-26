@@ -20,14 +20,17 @@ import {
 import {
   isPluginTab,
 } from "./types.ts";
+import type { WebTabsTranslate } from "../web/locales.ts";
 
-/** Command-and-browser Plugins renderer registered beside other Tabs content. */
+/** Plugin discovery renderer registered beside other Tabs content. */
 export function createPluginTabRenderer(
   controller: PluginTabsController,
   t: PluginsTranslate,
+  webT: WebTabsTranslate,
 ): TabRenderer {
   return {
     kind: "plugin-catalog",
+    persistence: { save: tab => isPluginTab(tab) ? { url: tab.payload.url } : undefined, restore: tab => controller.restore(tab) },
     createOptions: () => [
       {
         id: "plugins",
@@ -40,10 +43,6 @@ export function createPluginTabRenderer(
       },
     ],
     renderIcon: () => <PluginIcon size={13} />,
-    loading: (tab) =>
-      isPluginTab(tab) &&
-      tab.payload.operation.kind === "install",
-    loadingLabel: () => t("plugins.install.installing"),
     renderView: (
       tab: ManagedTab,
       active: boolean,
@@ -56,6 +55,7 @@ export function createPluginTabRenderer(
             active={active}
             controller={controller}
             t={t}
+            webT={webT}
           />
         )
         : null,

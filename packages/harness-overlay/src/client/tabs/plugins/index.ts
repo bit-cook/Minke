@@ -2,16 +2,6 @@ export {
   PluginTabsController,
 } from "./controller.ts";
 export {
-  createHarnessPluginInventoryPort,
-  createPluginLifecyclePort,
-} from "./lifecycle.ts";
-export type {
-  PluginLifecyclePlugin,
-  PluginLifecyclePort,
-  PluginLifecycleSnapshot,
-  PluginLifecycleState,
-} from "./lifecycle.ts";
-export {
   createPluginTabRenderer,
 } from "./renderer.tsx";
 export {

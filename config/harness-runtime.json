@@ -22,6 +22,8 @@
     "patches/deepseek-harness/process-environment-boundaries.patch",
     "patches/deepseek-harness/connection-rpc-webserver-scope.patch",
     "patches/deepseek-harness/sidebar-tab-lifecycle.patch",
+    "patches/deepseek-harness/sidebar-add-menu.patch",
+    "patches/deepseek-harness/shared-terminal-view.patch",
     "patches/deepseek-harness/embedded-document-preview.patch",
     "patches/deepseek-harness/session-export-feedback.patch"
   ],

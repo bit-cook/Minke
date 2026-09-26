@@ -103,9 +103,6 @@ import {
   FilesTabsController,
 } from "@minke/harness-overlay/client/tabs/files/controller.ts";
 import {
-  installConversationFileRouter,
-} from "@minke/harness-overlay/client/tabs/files/conversation-router.ts";
-import {
   loadFileIcon,
   loadFolderIcon,
   resolveFileIconName,
@@ -2767,7 +2764,7 @@ test("Files refreshes the directory and clean preview after disk changes", async
   tabs.dispose();
 });
 
-test("conversation files open in the Files source reader with on-demand diff", async () => {
+test("Files source reader opens files with on-demand diff", async () => {
   let shown = 0;
   const tabs = new TabsRuntime({
     showPanel() {
@@ -2854,43 +2851,6 @@ test("conversation files open in the Files source reader with on-demand diff", a
 
   files.dispose();
   tabs.dispose();
-});
-
-test("conversation file routing falls back and restores safely", async () => {
-  const systemOpened = [];
-  const routed = [];
-  const workspaces = {
-    async openPath(path) {
-      systemOpened.push(path);
-    },
-  };
-  const originalOpenPath = workspaces.openPath;
-  const dispose = installConversationFileRouter(
-    workspaces,
-    {
-      openFile(path, title) {
-        routed.push([path, title]);
-        return path.startsWith("/") ? "files-1" : undefined;
-      },
-    },
-    () => "Files",
-  );
-
-  await workspaces.openPath("/workspace/src/main.ts");
-  await workspaces.openPath("relative.ts");
-  assert.deepEqual(routed, [
-    ["/workspace/src/main.ts", "Files"],
-    ["relative.ts", "Files"],
-  ]);
-  assert.deepEqual(systemOpened, ["relative.ts"]);
-
-  dispose();
-  assert.equal(workspaces.openPath, originalOpenPath);
-  await workspaces.openPath("/workspace/README.md");
-  assert.deepEqual(systemOpened, [
-    "relative.ts",
-    "/workspace/README.md",
-  ]);
 });
 
 test("local link targets distinguish absolute paths from web paths", () => {
@@ -4166,9 +4126,8 @@ test("an open right drawer suppresses the global placement controls", () => {
       t: (key) => tabsEn[key],
       useSessions: (selector) =>
         selector({
-          current: "blank-session",
           byId: {
-            "blank-session": { blank: true },
+            "blank-session": { blank: true, retainedBy: { mainView: 1 } },
           },
         }),
     }),
@@ -4298,13 +4257,13 @@ test("window layout actions follow DSH header geometry", () => {
     2,
   );
   assert.equal(
-    (markup.match(/fill-rule="evenodd"/gu) ?? []).length,
+    (markup.match(/stroke-width="1"/gu) ?? []).length,
     2,
   );
   assert.doesNotMatch(markup, /transform="rotate\(/u);
   assert.match(
     markup,
-    /transform="translate\(16 0\) scale\(-1 1\)"/u,
+    /d="M10\.5 1\.5V14\.5"/u,
   );
   const blankMarkup = renderToStaticMarkup(
     createElement(NewSessionTabsHeaderAction, {
@@ -4315,9 +4274,8 @@ test("window layout actions follow DSH header geometry", () => {
       t: (key) => tabsEn[key],
       useSessions: (selector) =>
         selector({
-          current: "blank-session",
           byId: {
-            "blank-session": { blank: true },
+            "blank-session": { blank: true, retainedBy: { mainView: 1 } },
           },
         }),
     }),
@@ -4339,9 +4297,8 @@ test("window layout actions follow DSH header geometry", () => {
       t: (key) => tabsEn[key],
       useSessions: (selector) =>
         selector({
-          current: "active-session",
           byId: {
-            "active-session": { blank: false },
+            "active-session": { blank: false, retainedBy: { mainView: 1 } },
           },
         }),
     }),
@@ -4841,7 +4798,7 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   );
   assert.match(
     webViewSource,
-    /\[canCreateView,\s*controller,\s*tab\.id\]/u,
+    /\[canCreateView,\s*controller,\s*tab\.id,\s*decorateGuest,\s*allowPopups\]/u,
   );
   assert.doesNotMatch(
     webViewSource,
@@ -4922,17 +4879,6 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   assert.equal(tabsPanelReflowMaxWidth(1200, 240), 640);
   assert.equal(clampTabsPanelWidth(1000, 1200, 240), 940);
   assert.equal(clampTabsPanelWidth(700, 900, 240), 640);
-  const terminalStylesSource = readFileSync(
-    new URL(
-      "../packages/harness-overlay/src/client/tabs/terminal/styles.css",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  assert.match(
-    terminalStylesSource,
-    /\.minke-terminal-host\s*\{[\s\S]*?padding:\s*4px 8px 8px 12px;/u,
-  );
 });
 
 test("Tabs new button opens an anchored chooser without replacing the active view", () => {

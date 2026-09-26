@@ -12,9 +12,6 @@ export {
   createFilesTabRenderer,
 } from "./renderer.tsx";
 export {
-  installConversationFileRouter,
-} from "./conversation-router.ts";
-export {
   filesTabsEn,
   filesTabsZh,
 } from "./locales.ts";

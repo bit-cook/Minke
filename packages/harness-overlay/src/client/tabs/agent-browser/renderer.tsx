@@ -259,6 +259,14 @@ export function createAgentBrowserTabRenderer(
 ): TabRenderer {
   return {
     kind: AGENT_BROWSER_TAB_KIND,
+    persistence: {
+      save: tab => {
+        if (!isAgentBrowserTab(tab)) return undefined;
+        const { controlPending: _pending, controlError: _error, ...projection } = tab.payload;
+        return projection;
+      },
+      restore: tab => controller.restore(tab),
+    },
     renderIcon: controlSignal,
     renderLeadingActions: (tab) => {
       if (!isAgentBrowserTab(tab)) return null;

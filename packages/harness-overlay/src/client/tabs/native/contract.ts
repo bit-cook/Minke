@@ -10,14 +10,14 @@ export interface NativeTabRecord {
 
 export interface NativeTabSurface {
   readonly sessionId: string;
-  readonly paneIds: readonly string[];
   readonly expanded: boolean;
   readonly activeId: string | undefined;
+  readonly paneIds: readonly string[];
   readonly tabs: readonly NativeTabRecord[];
 }
 
 export interface NativeTabsConnection {
-  read(): { sessionId: string | undefined; surfaces: readonly NativeTabSurface[] };
+  read(): { surfaces: readonly NativeTabSurface[] };
   open(sessionId: string, tab: { kind: string; contentId: string; title: string; replaceTab?: string; paneId?: string }, activate: boolean): void;
   focus(sessionId: string, tabId: string): void;
   place(sessionId: string, tabId: string, targetId: string, edge: "before" | "after"): void;
@@ -27,6 +27,11 @@ export interface NativeTabsConnection {
 }
 
 export interface NativeSidebarService {
+  /** Public DSH signal for the session actually mounted in the sidebar. */
+  readonly mounted: {
+    getSnapshot(): string | undefined;
+    subscribe(listener: () => void): () => void;
+  };
   openTab(kind: string, options?: { paneId?: string }): string | undefined;
   connectMinkeTabs(options: {
     changed(): void;

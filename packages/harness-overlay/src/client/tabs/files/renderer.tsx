@@ -38,6 +38,7 @@ import type {
 import {
   isFilesTab,
 } from "./types.ts";
+import { saveFilesTab } from "./persistence.ts";
 
 function leadingActions(
   tab: ManagedTab,
@@ -126,6 +127,7 @@ export function createFilesTabRenderer(
 ): TabRenderer {
   return {
     kind: "files",
+    persistence: { save: saveFilesTab, restore: tab => controller.restore(tab) },
     createOptions: () => [
       {
         id: "files",

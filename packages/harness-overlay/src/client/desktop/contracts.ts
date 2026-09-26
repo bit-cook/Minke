@@ -12,8 +12,8 @@ import type {
   ModelRuntimeServiceState,
 } from "@lencx/minke-model-runtime/contract";
 import type {
-  InstalledPluginsSnapshot,
-} from "@minke/harness-overlay/plugin-install-contract.ts";
+  PluginManagementSettings,
+} from "@minke/harness-overlay/plugin-recovery-contract.ts";
 import type {
   ProductShortcutActionId,
   ShortcutBindings,
@@ -36,13 +36,6 @@ import type {
   FileManagerWriteRequest,
   FileManagerWriteResult,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
-import type {
-  TerminalCreateRequest,
-  TerminalCreateResult,
-  TerminalEvent,
-  TerminalResizeRequest,
-  TerminalWriteRequest,
-} from "@minke/harness-overlay/tabs/terminal-contract.ts";
 import type {
   TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
@@ -273,30 +266,16 @@ export interface DesktopFilesPort {
   ): () => void;
 }
 
-export interface DesktopTerminalPort {
-  readonly available: boolean;
-  create(
-    request: TerminalCreateRequest,
-  ): Promise<TerminalCreateResult>;
-  write(request: TerminalWriteRequest): void;
-  resize(request: TerminalResizeRequest): void;
-  close(sessionId: string): void;
-  subscribe(listener: (event: TerminalEvent) => void): () => void;
-}
-
 export interface DesktopSessionLogsPort {
   readonly available: boolean;
   export(sessionId: string): Promise<void>;
 }
 
-export interface PluginInstallerPort {
+/** Desktop recovery only. DSH's native page owns package management. */
+export interface PluginRecoveryPort {
   readonly available: boolean;
-  install(command: string): Promise<void>;
-  restart(): Promise<void>;
-  setEnabled(name: string, enabled: boolean): Promise<void>;
   setSafeMode(enabled: boolean): Promise<void>;
-  uninstall(name: string): Promise<void>;
-  readInstalled(): Promise<InstalledPluginsSnapshot>;
+  readSettings(): Promise<PluginManagementSettings>;
 }
 
 export interface DesktopShortcutBridge {
@@ -384,11 +363,6 @@ export interface DesktopFilesBridge {
 }
 
 export interface DesktopTerminalBridge {
-  create(request: TerminalCreateRequest): Promise<unknown>;
-  write(request: TerminalWriteRequest): void;
-  resize(request: TerminalResizeRequest): void;
-  close(sessionId: string): void;
-  subscribe(listener: (event: unknown) => void): () => void;
   readSettings(): Promise<unknown>;
   writeSettings(settings: TerminalSettings): Promise<void>;
 }
@@ -434,13 +408,9 @@ export interface DesktopRemoteHubBridge {
   ): () => void;
 }
 
-export interface DesktopPluginInstallerBridge {
-  install(command: string): Promise<void>;
-  restart(): Promise<void>;
-  setEnabled(name: string, enabled: boolean): Promise<void>;
+export interface DesktopPluginRecoveryBridge {
   setSafeMode(enabled: boolean): Promise<void>;
-  uninstall(name: string): Promise<void>;
-  readInstalled(): Promise<unknown>;
+  readSettings(): Promise<unknown>;
 }
 
 export interface DesktopDataHomeBridge {
@@ -478,7 +448,7 @@ export interface DesktopBridgeWindow {
     files?: DesktopFilesBridge;
     locale?: DesktopWindowLocaleBridge;
     modelRuntime?: DesktopModelRuntimeBridge;
-    pluginInstaller?: DesktopPluginInstallerBridge;
+    pluginRecovery?: DesktopPluginRecoveryBridge;
     remote?: DesktopRemoteBridge;
     remoteHub?: DesktopRemoteHubBridge;
     sessionLogs?: DesktopSessionLogsBridge;

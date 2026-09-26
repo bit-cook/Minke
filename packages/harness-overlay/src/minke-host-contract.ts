@@ -9,17 +9,9 @@ import type {
   FileManagerWriteRequest,
   FileManagerWriteResult,
 } from "./tabs/files-contract.ts";
-import type {
-  TerminalCreateRequest,
-  TerminalCreateResult,
-  TerminalReadRequest,
-  TerminalReadResult,
-  TerminalResizeRequest,
-  TerminalWriteRequest,
-} from "./tabs/terminal-contract.ts";
 
 export const MINKE_HOST_RPC_CHANNEL = "/minke";
-export const MINKE_HOST_PROTOCOL_VERSION = 2;
+export const MINKE_HOST_PROTOCOL_VERSION = 3;
 
 export interface MinkeHostCapabilities {
   readonly protocolVersion: typeof MINKE_HOST_PROTOCOL_VERSION;
@@ -34,11 +26,6 @@ export interface MinkeHostCapabilities {
     readonly available: true;
     readonly embeddedWeb: false;
     readonly state: "client";
-  };
-  readonly terminal: {
-    readonly available: true;
-    readonly resize: true;
-    readonly transport: "long-poll";
   };
 }
 
@@ -64,26 +51,6 @@ export type MinkeHostRpcMap = {
     readonly request: FileManagerWriteRequest;
     readonly response: FileManagerWriteResult;
   };
-  readonly "terminal.close": {
-    readonly request: string;
-    readonly response: null;
-  };
-  readonly "terminal.create": {
-    readonly request: TerminalCreateRequest;
-    readonly response: TerminalCreateResult;
-  };
-  readonly "terminal.read": {
-    readonly request: TerminalReadRequest;
-    readonly response: TerminalReadResult;
-  };
-  readonly "terminal.resize": {
-    readonly request: TerminalResizeRequest;
-    readonly response: null;
-  };
-  readonly "terminal.write": {
-    readonly request: TerminalWriteRequest;
-    readonly response: null;
-  };
 }
 
 export type MinkeHostRpcEndpoint = keyof MinkeHostRpcMap;
@@ -100,11 +67,6 @@ export const MINKE_HOST_RPC_ENDPOINTS = Object.freeze({
   "files.list": true,
   "files.preview": true,
   "files.write": true,
-  "terminal.close": true,
-  "terminal.create": true,
-  "terminal.read": true,
-  "terminal.resize": true,
-  "terminal.write": true,
 } satisfies Readonly<Record<MinkeHostRpcEndpoint, true>>);
 
 export function isMinkeHostRpcEndpoint(
@@ -140,10 +102,6 @@ export function parseMinkeHostCapabilities(
     candidate.tabs,
     "Minke Host Tabs capabilities",
   );
-  const terminal = record(
-    candidate.terminal,
-    "Minke Host Terminal capabilities",
-  );
   if (
     candidate.protocolVersion !== MINKE_HOST_PROTOCOL_VERSION ||
     files.available !== true ||
@@ -154,10 +112,7 @@ export function parseMinkeHostCapabilities(
     files.write !== true ||
     tabs.available !== true ||
     tabs.embeddedWeb !== false ||
-    tabs.state !== "client" ||
-    terminal.available !== true ||
-    terminal.resize !== true ||
-    terminal.transport !== "long-poll"
+    tabs.state !== "client"
   ) {
     throw new TypeError("Minke Host capabilities are incompatible");
   }
@@ -174,11 +129,6 @@ export function parseMinkeHostCapabilities(
       available: true,
       embeddedWeb: false,
       state: "client",
-    },
-    terminal: {
-      available: true,
-      resize: true,
-      transport: "long-poll",
     },
   };
 }

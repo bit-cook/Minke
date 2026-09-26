@@ -1,52 +1,19 @@
 .minke-terminal-view {
-  position: relative;
-  overflow: hidden;
-  background: var(--minke-code-background);
-}
-
-.minke-terminal-host {
-  position: absolute;
-  inset: 0;
-  padding: 4px 8px 8px 12px;
-  box-sizing: border-box;
-}
-
-.minke-terminal-host .xterm,
-.minke-terminal-host .xterm-viewport,
-.minke-terminal-host .xterm-screen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   height: 100%;
-}
-
-.minke-terminal-host .xterm-viewport {
-  background: var(--minke-code-background);
-  scrollbar-color:
-    var(--minke-code-border)
-    transparent;
-  scrollbar-width: thin;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .minke-terminal-state {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
   display: grid;
+  flex: 1;
   place-items: center;
   padding: 24px;
-  background: var(--minke-code-background);
-  color: var(--minke-code-gutter);
-  font-size: 12px;
-  line-height: 18px;
-  text-align: center;
-}
-
-.minke-terminal-state[data-error] {
-  color: var(--dsw-alias-state-error-primary);
-}
-
-.minke-terminal-state strong {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--minke-code-foreground);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
   font-size: 13px;
-  font-weight: 600;
+  text-align: center;
 }

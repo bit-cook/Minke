@@ -24,22 +24,10 @@ import {
   type FileManagerViewState,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
-  parseTerminalCreateRequest,
-  parseTerminalCreateResult,
-  parseTerminalReadRequest,
-  parseTerminalReadResult,
-  parseTerminalResizeRequest,
-  parseTerminalSessionId,
-  parseTerminalWriteRequest,
-  type TerminalEvent,
-} from "@minke/harness-overlay/tabs/terminal-contract.ts";
-import {
   desktopFilesPort,
   desktopTabsPort,
-  desktopTerminalPort,
   type DesktopFilesPort,
   type DesktopTabsPort,
-  type DesktopTerminalPort,
 } from "../desktop/index.ts";
 import type {
   HarnessClientContext,
@@ -266,157 +254,14 @@ export function browserFilesPort(
   };
 }
 
-const TERMINAL_POLL_WAIT_MS = 20_000;
-const TERMINAL_TRUNCATED_NOTICE =
-  "\r\n\u001b[2m[earlier terminal output was truncated]\u001b[0m\r\n";
-
-interface BrowserTerminalPoll {
-  readonly controller: AbortController;
-  cursor: number;
-}
-
-/** Long-poll adapter for interactive Minke Host Terminal sessions. */
-export function browserTerminalPort(
-  connection: Connection,
-): DesktopTerminalPort {
-  const call = createHostCaller(connection);
-  const listeners = new Set<(event: TerminalEvent) => void>();
-  const sessions = new Map<string, BrowserTerminalPoll>();
-
-  const publish = (event: TerminalEvent): void => {
-    for (const listener of listeners) listener(event);
-  };
-  const publishError = (
-    sessionId: string,
-    error: unknown,
-  ): void => {
-    publish({
-      type: "error",
-      sessionId,
-      message:
-        error instanceof Error ? error.message : String(error),
-    });
-  };
-  const closeRemote = (sessionId: string): void => {
-    void call(
-      "terminal.close",
-      parseTerminalSessionId(sessionId),
-    ).catch(() => {
-      // The Host may already have released an exited or disconnected PTY.
-    });
-  };
-  const close = (sessionId: string): void => {
-    const poll = sessions.get(sessionId);
-    if (poll === undefined) return;
-    sessions.delete(sessionId);
-    poll.controller.abort();
-    closeRemote(sessionId);
-  };
-  const poll = async (
-    sessionId: string,
-    state: BrowserTerminalPoll,
-  ): Promise<void> => {
-    try {
-      while (sessions.get(sessionId) === state) {
-        const result = parseTerminalReadResult(
-          await call(
-            "terminal.read",
-            parseTerminalReadRequest({
-              sessionId,
-              cursor: state.cursor,
-              waitMs: TERMINAL_POLL_WAIT_MS,
-            }),
-            state.controller.signal,
-          ),
-        );
-        if (result.cursor < state.cursor) {
-          throw new Error(
-            "Minke Host Terminal cursor moved backwards",
-          );
-        }
-        if (result.truncated) {
-          publish({
-            type: "data",
-            sessionId,
-            data: TERMINAL_TRUNCATED_NOTICE,
-          });
-        }
-        state.cursor = result.cursor;
-        for (const event of result.events) publish(event);
-        if (result.done) {
-          if (sessions.get(sessionId) === state) {
-            sessions.delete(sessionId);
-            closeRemote(sessionId);
-          }
-          return;
-        }
-      }
-    } catch (error) {
-      if (state.controller.signal.aborted) return;
-      if (sessions.get(sessionId) === state) {
-        sessions.delete(sessionId);
-        publishError(sessionId, error);
-        closeRemote(sessionId);
-      }
-    }
-  };
-
-  return {
-    available: true,
-    async create(request) {
-      const result = parseTerminalCreateResult(
-        await call(
-          "terminal.create",
-          parseTerminalCreateRequest(request),
-        ),
-      );
-      const state: BrowserTerminalPoll = {
-        controller: new AbortController(),
-        cursor: 0,
-      };
-      sessions.set(result.sessionId, state);
-      void poll(result.sessionId, state);
-      return result;
-    },
-    write(request) {
-      const parsed = parseTerminalWriteRequest(request);
-      if (!sessions.has(parsed.sessionId)) return;
-      void call("terminal.write", parsed).catch((error) => {
-        publishError(parsed.sessionId, error);
-      });
-    },
-    resize(request) {
-      const parsed = parseTerminalResizeRequest(request);
-      if (!sessions.has(parsed.sessionId)) return;
-      void call("terminal.resize", parsed).catch((error) => {
-        publishError(parsed.sessionId, error);
-      });
-    },
-    close,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-        if (listeners.size === 0) {
-          for (const sessionId of [...sessions.keys()]) {
-            close(sessionId);
-          }
-        }
-      };
-    },
-  };
-}
-
 /** Prefer native preload capabilities and fall back to Minke Host. */
 export function minkeWorkspacePorts(
   connection: Connection,
   desktopTabs: DesktopTabsPort = desktopTabsPort(),
   desktopFiles: DesktopFilesPort = desktopFilesPort(),
-  desktopTerminal: DesktopTerminalPort = desktopTerminalPort(),
 ): {
   readonly files: DesktopFilesPort;
   readonly tabs: DesktopTabsPort;
-  readonly terminal: DesktopTerminalPort;
 } {
   return {
     files: desktopFiles.available
@@ -425,9 +270,6 @@ export function minkeWorkspacePorts(
     tabs: desktopTabs.available
       ? desktopTabs
       : browserTabsPort(),
-    terminal: desktopTerminal.available
-      ? desktopTerminal
-      : browserTerminalPort(connection),
   };
 }
 
