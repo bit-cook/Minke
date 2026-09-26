@@ -4,16 +4,29 @@ Minke keeps `vendor/deepseek-harness` pinned and pristine. Local fixes that cann
 
 The applicator accepts git unified diffs that modify existing text files below `node_modules/@deepseek-ai/`. It rejects path escapes, file creation/deletion, renames, binary patches, stale hunks, and skipped patches. Patch contents are part of the runtime fingerprint and metadata; validation also reverse-checks that every declared patch is present before publishing or fast refresh.
 
-`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.6-alpha.1` (`0a15e36e7f82b6ed45af6fa9759f29b40dcd965d`). It:
+`window-drag-capability.patch` lets Minke opt into the existing macOS drag
+geometry watcher with `data-window-drag-platform="darwin"`. The full
+`data-platform` marker also requires DSH Desktop's native keyboard bridge, so
+Minke keeps its current shortcuts and layout. The preload supplies matching
+drag/control CSS; DSH retains ownership of geometry recollection. The frontend
+entry URL changes to invalidate previously cached code. Remove this patch when
+upstream exposes an independent window-drag capability.
+
+`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.7-rc.2` (`477b4f420553e8a52c2fbccc464d7561b239c443`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
 - keeps the dialog worker's IPC channel open through non-terminal `showing` progress and disconnects only after a terminal result.
+
+Local desktop windows now supply DSH's `__DSH_DIRECTORY_PICKER__` bridge, so
+the native workspace flow opens Electron's window-owned dialog directly.
+The worker hunks remain for Host/CLI fallback callers without that bridge;
+the separate Windows ACL runner hunks are still required.
 
 Harness now decodes selected UTF-16 paths through a pointer-sized buffer without creating an external `ArrayBuffer`. The former local decoding hunk is removed; the worker regression still checks the selected Unicode path and terminal IPC result.
 
 `windows-background-processes.patch` is pinned to the same Harness commit. It:
 
-- fills the remaining console-window suppression gaps in Windows process inspection, sandbox probes, browser handoff, plugin management, and the experimental Python PTC runtime (`dsh-experimental-ptc-runtime-python`);
+- fills the remaining console-window suppression gaps in Windows process inspection, sandbox probes, browser handoff, the SDK child runtime, and the experimental Python PTC runtime (`dsh-experimental-ptc-runtime-python`);
 - retains upstream's hidden `taskkill` helpers, hides the Windows Job runner, and makes the fallback subprocess spawner's `windowsHide` value explicitly `true` for the staged-artifact audit;
 - leaves PTY/ConPTY terminal sessions on their dedicated `spawnTerminal` lifecycle path.
 
@@ -30,11 +43,37 @@ visibility choice so requested GUI windows can appear. The audit recognizes
 only its detached, credential-scrubbed launch in the pinned resolver artifacts;
 other launch sites in that package remain subject to the background policy.
 
+LibreOffice engine `0.1.1` packages redistribute their build sources with the
+native binaries. The audit excludes only `.mjs` rebuild inputs declared by
+`prebuilds.json` below `sources/engine` and `sources/scripts` in those pinned
+engine packages. It retains the sources and licenses in the shipped runtime.
+Actual converter workers, undeclared scripts, and future engine versions remain
+audited; re-evaluate this boundary on the next engine upgrade.
+
 `optional-plugin-isolation.patch` is pinned to the same Harness commit. It:
 
-- uses upstream startup auditing for optional-plugin failures and adds `minke-overlay` and `model-runtime` to its required-entry list;
-- skips external profile bundles selected by Minke's disabled-plugin policy or safe mode without changing the profile manifest;
+- uses upstream startup auditing for optional-plugin failures and adds `minke-overlay` and `llm-pi-ai` to its required-entry list;
+- temporarily skips external profile bundles in desktop safe mode without changing the profile manifest; ordinary enablement uses DSH PluginManager;
 - retains import errors on Loader entries and projects them as `failed` in plugin inventory, alongside upstream activation failures.
+
+The CLI now delegates package operations to Plugin Manager, which uses execa
+and the bundled pnpm adapter; the old CLI spawn patches are removed.
+
+`embedded-profile-resolution.patch` makes the main and Worker profile resolvers
+use Node's exposed internal modules when Minke launches with
+`--expose-internals`, as Cordis's own loader already does. The new upstream
+resolver otherwise unconditionally uses `node-addon-require-builtin` 0.1.6,
+whose runtime fingerprint list rejects Minke's Electron 43.4.0. The resolver's
+loader-shape checks remain intact, and launches without the flag retain the
+upstream addon path. Remove this patch when upstream supports exposed internals
+in both profile resolvers or the bundled addon supports Minke's Electron.
+
+`model-runtime-composition.patch` selects Minke's local-model wrapper at the
+existing `llm-pi-ai` entry in the staged base bundle. Cordis treats a patch's
+`name` as an identity check, so the product overlay cannot replace that module.
+The wrapper mounts the unchanged upstream pi-ai plugin, preserves the native
+settings namespace, and adds transient local discovery. Remove this packaging
+patch when upstream exposes a provider-contribution or module-replacement seam.
 
 The former local isolation/rollback implementation is removed. Upstream now owns
 startup recovery: optional failures do not stop unrelated plugins, required
@@ -54,13 +93,10 @@ changes that must be corrected.
 - restores embedded Node arguments before PTC confinement. On POSIX, the confined argv explicitly restores Node mode after the native sandbox launcher; model code still sees an empty environment, and the separate control pipe remains intact;
 - preserves upstream's `proxyEnvironmentForChild()` overlay after scrubbing, so children retain the configured proxy routing.
 
-`document-preview-browser-crypto.patch` is pinned to the same Harness commit.
-It removes PDF.js's optional `crypto.randomUUID` fast path from the document
-preview bundle, retaining its existing 32-byte `getRandomValues` fallback for
-internal annotation identifiers. This keeps the browser artifact within Minke's
-crypto boundary on HTTP/LAN origins without changing the audit or vendor source.
-The patch can be removed when the upstream bundle no longer references that
-secure-context-only API.
+The former `document-preview-browser-crypto.patch` is removed. The alpha.2
+preview bundle loads PDF.js through the upstream runtime loader and no longer
+inlines the secure-context-only UUID call. The browser-artifact audit remains
+active for the staged client bundles.
 
 `connection-rpc-webserver-scope.patch` is pinned to the same Harness commit.
 Connection no longer requires a Web server at its root. Dedicated RPC channels
@@ -84,10 +120,38 @@ private `connectMinkeTabs` seam for observing the native layouts, opening custom
 instances with distinct content identities, and removing their seats across
 sessions. Native store mutations ask the content owner before removing records,
 including replacement and undo; a rejected mutation does not publish navigation
-or layout changes. Minke content lifetimes bypass DSH resource pins, while native
-file resources retain their existing pin and Session ownership. The patch is
+or layout changes. Minke registers a `minke-tab` resource provider and follows standard DSH pins.
+Releasing a session pin ends its resource stream; an explicit close disposes the
+global content instance. Native file resources keep their existing ownership. Session
+mount changes now use DSH's public `sidebarRight.mounted` observable; the private
+binding-notification hunk has been retired. The store retains native layout
+persistence and new-pane placement. The patch is
 confined to the staged Sidebar client bundle and can be retired when upstream
 provides equivalent instance, observation, and close-admission contracts.
+
+`session-export-feedback.patch` limits the shared Session-export modal to
+errors. Header-menu downloads and `/export` proceed to the browser or native
+save flow without a preparing or download-started dialog. Download deduplication,
+the menu's busy state, and dismissible failure details remain owned by Harness.
+Remove this patch when upstream offers equivalent quiet download feedback.
+
+`sidebar-add-menu.patch` exposes the add-tab intent through a session-scoped
+`sidebar.right.pane.add-menu` slot. It supplies the clicked pane and button anchor;
+without a picker registration it opens the native Start page. DSH continues to
+own the button, split controls, tab placement, and provider guide cards. Menus
+close when their pane or session is hidden or removed. Remove this patch when
+upstream offers an equivalent add-tab picker slot.
+
+`shared-terminal-view.patch` exposes the native Terminal screen as `terminalUI`
+and gives `webTerminals.retainTabs` an optional owner key (default: Sidebar).
+The bottom panel can then reuse DSH's model, screen and process lifecycle without
+overwriting Sidebar window holds. One appearance store updates both placements'
+fonts and ANSI palettes; the native OSC override/reset behavior remains intact.
+The old Minke desktop PTY, terminal IPC and Host long-poll transport are retired.
+Remove the patch when DSH exposes an equivalent reusable view, appearance input
+and independent retention owners. `shared-terminal.test.mjs` exercises the
+patched providers; the Electron Sidebar regression checks commands, live settings
+and restoration of the same shell after refresh.
 
 Harness owns the native right Sidebar, document previews, produced-file actions,
 and the whole-session turn rail with deep-history load-and-jump. Minke custom
@@ -107,12 +171,12 @@ The earlier 0.1.2-alpha.3 release removes only Harness's optional SQLite Session
 Minke's IM Gateway SQLite mailbox is a separate desktop transport store and is
 not part of that Session persistence contract.
 
-The 0.1.6-alpha.1 runtime uses Session v3 and lifecycle-scoped SessionHandles.
+The 0.1.7-rc.2 runtime uses Session v4 and lifecycle-scoped SessionHandles.
 Minke's staged entry invokes the exported `runCli()` after loading its Node
 bootstrap; importing the upstream CLI no longer dispatches a command.
 Minke delegates Session creation, inspection, follow streams, and export to
-SessionController; Harness owns locking and adjacent v0/v1/v2 migrations, which
-write new v3 logs and retain committed predecessors. Downgrade reads are not
+SessionController; Harness owns locking and adjacent format migrations, including
+v3 to v4, which write new logs and retain committed predecessors. Downgrade reads are not
 supported. Historical PTC/preset events and system prompts are migrated by the
 upstream format catalog rather than rewritten by Minke.
 
@@ -126,6 +190,20 @@ The production deploy allows unused workspace patches because the upstream
 `@electron/osx-sign` patch belongs to its separate desktop build, outside Minke's
 production dependency closure. The complete frozen workspace install still
 validates all declared patches.
+
+Alpha.2 adds LibreOffice for Office previews. Its platform packages add about
+255–264 MiB on macOS, 185 MiB on Linux (WASM), and 325–328 MiB on Windows before
+pruning. All platforms share a 1 GiB runtime budget to leave room for Office
+engines and platform-specific native dependencies; the 15,000-file limit
+remains active. The staged rc.2 macOS ARM64 runtime measures about 342 MiB.
+Every platform must still pass the size gate when staged.
+
+The rc.2 source cleaner omits `lib/desktop-keyboard-test-types` from its allowed
+outputs despite referencing that project. `scripts/harness/clean-source.mjs`
+executes the upstream cleaner with only that exact output admitted. Source and
+orphan-path checks remain intact; remove the adapter when upstream fixes its
+allowlist. This build-time adaptation does not modify the vendored checkout or
+ship in the runtime.
 
 After changing the upstream pin or a patch, run:
 

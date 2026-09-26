@@ -8,7 +8,7 @@ The host composition mounts the separate `@lencx/minke-model-runtime/dsh` adapte
 
 - `model-runtime` is a DSH plugin that owns local model discovery and optional service lifecycle for exactly two product runtimes: LM Studio and Ollama. LM Studio uses `lms server status --json` / `lms server start` and enriches its OpenAI-compatible catalog with LM Studio's v1 loaded-instance metadata. Before dispatch, it verifies that the selected instance has the configured context window. Selecting an unloaded model explicitly authorizes Minke to load that model with the configured context, even when LM Studio was started externally; Minke still never unloads or reconfigures an existing external instance. If Minke started the service itself, it may also reload an undersized default model instance while preserving its supported load parameters. Ollama uses its OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`. A generic `openAICompatible` adapter remains available for manually configured loopback servers; it does not gain command discovery or process management.
 
-Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.1.6-alpha.1` runtime and are not embedded in Minke's base runtime. Install one into the `web` Profile:
+Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.1.7-rc.2` runtime and are not embedded in Minke's base runtime. Install one into the `web` Profile:
 
 - Codex: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-codex`
 - Claude Code: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-claude-code`
@@ -24,12 +24,9 @@ provider selection, credentials, retries, and error reporting remain intact.
 The persisted `webSearch.fallbackEnabled` compatibility setting defaults to
 `true`; Harness startup maps it to the product-owned
 `MINKE_WEB_SEARCH_FALLBACK_ENABLED` launch flag and uses it only to enable or
-disable this additional tool and its failure router. After a native
-`web_search` error, the router retries through the same credential-free engine
-and returns a clearly labelled fallback result. After `web_fetch` fails, the
-original call remains an error and gains clearly labelled alternative search
-sources; snippets are never presented as fetched page content. Cancellation
-does not trigger fallback. The built-in Bing RSS endpoint is a bounded
+disable this additional tool. Agents call it explicitly; Minke does not intercept
+`tools/execute`, retry native failures, or replace their results. Search snippets
+are never presented as fetched page content. The built-in Bing RSS endpoint is a bounded
 best-effort search route with no stability guarantee.
 `MINKE_WEB_SEARCH_BASE_URL` may select a compatible RSS endpoint. The provider
 sends no cookies or credentials, follows only same-origin or controlled Bing
@@ -61,7 +58,22 @@ The browser half owns Minke's product policy, configurable keyboard shortcuts, a
 
 Third-party Profile plugins cross the trusted extension boundary. Their package manager hooks may execute during installation, and their Host and Client code is composed into the `web` Profile on every later launch. Such code can reach DSH data, workspaces, credentials through DSH services, and any service the user authorizes. Minke therefore treats the plugin source—not only its install command—as a persistent trust decision.
 
-The Plugins workspace combines desktop-owned Profile installation metadata with the current `pluginInventory/list` projection from DSH's Loader. Installed files and runtime activation are separate facts: a plugin can be active, disabled, pending, isolated after a load failure, missing locally, or have an unknown runtime state when inventory cannot be read. Inventory failure never hides the installed package list. The upstream inventory has no bundle provenance, so Minke correlates Profile bundles to Loader entries by exact package/module name; a bundle that inserts differently named entries is reported as unobserved instead of being assumed healthy. Loader failure details remain in the Host startup log; the workspace offers refresh, restart, repository access, and removal without duplicating the Loader state machine.
+DSH's native Plugins page owns installation, configuration, installed bundles,
+and live activation through `pluginManager`. Minke contributes GitHub discovery
+and desktop safe-mode recovery through public slots. The former disabled-package
+list is migrated once into the `web` Profile's selected bundles before startup;
+installed dependencies remain intact. The legacy list is cleared only after the
+Profile update succeeds. Ordinary plugin changes no longer use desktop IPC,
+CLI subprocesses, or a separate Minke activation state.
+Discovery uses the shared Web Tab guest, navigation and error recovery with a
+GitHub search preset. Existing discovery tabs keep their identity and restore
+their last URL; discovery guests continue to disallow popups.
+Desktop recovery exposes only settings and safe-mode changes; legacy Profile
+migrations remain separate from that interface.
+
+DSH's native workspace directory flow uses the window-owned desktop picker
+bridge when available. Requests from guest windows or subframes are rejected;
+remote browsers retain DSH's Host chooser or directory-browser flow.
 
 The unified Minke section contains labeled tabs for Preferences, Browser, Shortcuts, and Storage. Model-related configuration remains under the existing DSH Models entry, so users do not need to switch between two settings directories for one task. Remote access configuration lives only in Connections under Device access, alongside its live status and recovery actions. It is backed by the separate `@lencx/minke-remote-access` package, persists a default-off Tailscale opt-in, shows the active private HTTPS URL, and keeps command execution, retries, trusted-host updates, and process lifecycle in the desktop host rather than the browser bundle. Changing the enable switch applies to the running Harness without restarting Minke.
 
@@ -69,20 +81,27 @@ The separate document-start extension remains CSS-only. It exists solely because
 
 ## Right Sidebar tabs
 
-While a conversation is selected, DSH owns the right tab strip, selection,
+DSH owns the right tab strip, selection,
 splits, floats, fullscreen, and native document previews. Minke registers its
-Files editor, Terminal, Web, AgentBrowser, Plugins, and Browser History through
+Files editor, Web, AgentBrowser, plugin discovery, and Browser History through
 `sidebarRightTabs` and the body/title slots. The native Start page offers
 Minke's creation cards and shortcut hints through `sidebar.right.tab.guide.entry`,
 below the native Workspace files and Terminal cards. DSH owns the Terminal shell
 picker and its multiple-instance, cleanup and refresh-recovery lifecycle.
+The right-side Terminal shortcut delegates to DSH; there is no duplicate Minke
+Terminal card. The bottom panel uses the same DSH terminal view and service.
+Both placements share Minke's font, line spacing and code palette preferences;
+DSH owns PTYs, input/output, reconnects and explicit close. Minke retains only
+the bottom layout and its Session-bound tab identities, with independent window
+holds so one placement cannot release the other's shells.
 Creating a Minke tab replaces Start in the same pane and strip slot; keyboard
 creation shortcuts continue to use the same controllers. The earlier
 `minke.launcher` address redirects to the native Start page.
-The native add-tab button opens the shared dropdown with DSH and Minke groups.
-Choosing an entry creates it in that button's pane; dismissing the menu preserves
-the visible content and does not create a Start tab.
-The Start page follows `dsh-v0.1.6-alpha.1`'s compass and descriptive native cards,
+The native add-tab button opens a grouped DSH / Minke picker through the pinned
+`sidebar.right.pane.add-menu` slot. Choosing an entry creates it in the clicked
+pane; dismissing the menu leaves existing tabs intact. Start remains available
+for provider-owned cards, including Terminal's shell picker.
+The Start page follows `dsh-v0.1.7-rc.2`'s compass and descriptive native cards,
 with the Minke card list below them. Native descriptions appear for up to four
 entries and remain owned by the registering plugin's locale.
 Start fills at least the pane's available height and uses the native pane's
@@ -90,6 +109,13 @@ scroller. Cards shrink within narrow panes so their text cannot widen the page.
 The docked native Sidebar reserves the bottom panel's current height, including
 while resizing it, so its content scrolls above that panel. Fullscreen retains
 the entire window, and closing the bottom panel restores the docked Sidebar's height.
+
+Custom content rehydrates from per-window session storage before attaching to
+the native layout. Refresh restores Web URLs, Files locations and unsaved drafts,
+plugin discovery, history, and active AgentBrowser projections. File drafts retain
+their original disk version so a later save still detects external changes.
+Terminal tabs reconnect to their original DSH shells after a renderer refresh;
+webpage form state is not preserved.
 
 The Files editor offers Preview, Source and Diff for Markdown and HTML files.
 Preview renders the current draft through DSH's document bodies; changing modes
@@ -107,7 +133,10 @@ Minke retains Remote and bottom-panel actions in the conversation area and suppl
 the opener when a blank session has no native conversation header.
 
 Session export uses DSH's native header menu (More actions → Download session log).
-Electron handles the ZIP download through its existing save dialog. Minke's Remote
+Electron handles the ZIP download through its existing save dialog. The staged
+`session-export-feedback.patch` keeps the shared Header and `/export` modal
+closed during preparation and successful handoff, while preserving failure
+details and dismissal. Minke's Remote
 and panel controls follow DSH's 28px circular buttons and 15px icons. Their icons
 share DSH's unrotated outer contour and border weight; Remote status colors its
 wireless symbol inside the frame. On macOS,
@@ -128,8 +157,11 @@ overlapping native floats. A shared observer coalesces layout, resize and scroll
 changes; static tabs do not poll geometry, and finite layout transitions retain
 frame-by-frame tracking. Changing tabs, panes, presentation, or sessions does
 not reparent the WebView. Native titles, tab context menus, and drag handling remain in DSH.
-The start page and global panels use Minke's fallback strip with those same
-content owners. The bottom panel retains its independent Minke implementation.
+Opening right-side content from a global panel such as Plugins returns to the current
+conversation and waits for DSH's Sidebar to mount; if no conversation exists,
+DSH starts one. Existing tabs and editor drafts are retained. The fallback strip
+is used only without a connected DSH Sidebar service. The bottom panel retains
+its independent Minke implementation.
 There is no DOM observer switching between competing right sidebars.
 
 The applied-artifact tests in `tests/native-sidebar-tabs.test.mjs` exercise the
@@ -137,5 +169,11 @@ actual DSH store and controller, including a negative control for close guards.
 The Electron conversation regression verifies native placement and WebContents
 identity with a local model fixture and temporary user data.
 `pnpm test:desktop:sidebar` exercises blank-session controls at different widths,
-direct tab creation, Web navigation and retained input, a live Terminal command,
-and the file editor's unsaved-close guard in the production renderer.
+direct tab creation, Web navigation and retained input, live Terminal commands
+after returning from Plugins (including after closing Settings), and the file editor's unsaved-close
+guard in the production renderer.
+
+Client Sessions can coexist in the main view and sidebar. Minke locates the main
+conversation through the catalog's `retainedBy.mainView` count and navigates with
+`uiWorkspace.openSession()`. Browser comment drafts borrow only a live retained
+Session scope; opening a sidebar Subagent does not redirect the handoff target.

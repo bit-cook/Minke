@@ -29,11 +29,11 @@ Minke 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harne
 Minke 在 Harness 智能体能力的基础上，提供浏览器共同控制、桌面工作空间、远程访问和本地模型管理。
 
 - **Agent Browser 与人机协作** — Agent 可以在可见的浏览器标签页中搜索、打开并操作网页；你可以在不关闭当前标签页的情况下接管、完成后交还给 Agent，也可以把带标注的页面上下文发回对话。
-- **灵活的工作空间与文件编辑** — 通过 Harness 侧栏的分屏、浮动和全屏标签页，以及 Minke 独立的底栏，将文件、终端、网页、浏览历史和插件放在对话旁边。直接编辑源码、查看 Diff，并预览 Markdown 和 HTML 草稿。
-- **智能体工作流与会话历史** — 使用 Harness 的智能体预设（Agent Presets）、计划、目标、技能和子代理。通过对话轮次目录浏览长会话、跳转到早期轮次、导出会话日志，也可以让 Agent 安排会话内的定时跟进。
+- **灵活的工作空间与文件编辑** — 通过 Harness 侧栏的分屏、浮动和全屏标签页，以及 Minke 独立的底栏，将文件、终端、网页、浏览历史和插件发现放在对话旁边。直接编辑源码、审阅每轮文件变更、预览 Markdown 和 HTML 草稿，并在侧栏查看 Word、Excel 和 PowerPoint 文件。
+- **智能体工作流与会话历史** — 使用 Harness 的智能体预设（Agent Presets）、计划、目标、技能和子代理。在侧栏查看提交的计划和子代理会话，通过对话轮次目录浏览长会话、导出会话日志，也可以让 Agent 安排会话内的定时跟进。
 - **在常用设备和应用中远程使用** — 从手机或其他电脑打开支持 PWA 的响应式 Web 工作空间，或通过微信、Telegram 与 Discord 向 Minke 电脑上的 Agent 发起任务。Web 私密访问支持 Tailscale 和 Cloudflare Access。
 - **云端与本地模型** — 使用 Harness 的模型提供方和自定义端点，并通过 Minke 发现 LM Studio、Ollama 中的模型，按需启用服务自动启动。其他仅监听本机回环地址的 OpenAI 兼容服务也可手动配置。
-- **可查看运行状态的插件管理** — 发现、安装、启用或禁用 Harness 插件，并查看运行中、加载中或加载失败等状态。遇到启动问题时，可通过安全模式排查，同时保留已安装插件。
+- **原生插件管理** — 通过 Harness 的 Plugins 页面安装、配置和实时启停插件，Minke 提供插件发现与安全模式恢复。
 - **桌面集成与本地存储** — macOS、Windows 和 Linux 版本提供原生菜单、自定义快捷键、内置更新、主题同步及中英文界面。Session、设置、浏览历史和浏览器会话数据保留在你的电脑上。
 
 <table>
@@ -176,7 +176,7 @@ sudo dnf install "/path/to/minke-package.rpm"
 
 请在与目标安装包相同的操作系统和 CPU 架构上构建 Minke。构建产物位于 `out/make`，本项目不支持在单一宿主机上进行跨平台打包。
 
-内置 Harness 的版本、源码提交和应用的补丁记录在 [runtime 配置](./config/harness-runtime.json)中。
+当前源码使用 **DSH v0.1.7-rc.2**。源码提交和应用的补丁记录在 [runtime 配置](./config/harness-runtime.json)中；功能变化和迁移事项见 [DSH 升级说明](./docs/dsh-upgrade.md)。
 
 环境依赖：
 
