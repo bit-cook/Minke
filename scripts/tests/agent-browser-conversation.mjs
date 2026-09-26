@@ -62,5 +62,9 @@ try {
   });
   process.exitCode = code;
 } finally {
-  await rm(temporaryRoot, { recursive: true, force: true });
+  // Only the parent removes userData, after the Electron child has closed.
+  // Windows can briefly retain handles while Chromium helper processes exit.
+  await rm(temporaryRoot, {
+    recursive: true, force: true, maxRetries: 10, retryDelay: 100,
+  });
 }

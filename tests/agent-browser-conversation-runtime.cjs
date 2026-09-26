@@ -1,11 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { rmSync } = require('node:fs');
 const {
-  mkdtemp,
   mkdir,
-  rm,
   writeFile,
 } = require('node:fs/promises');
 const http = require('node:http');
@@ -812,20 +809,12 @@ async function verifyComposerFocus(window) {
 async function run() {
   trace('preparing isolated runtime');
   const suppliedTemporaryRoot = process.env[TEMP_ROOT_ENV];
-  const temporaryRoot = suppliedTemporaryRoot === undefined
-    ? await mkdtemp(join(tmpdir(), TEMP_ROOT_PREFIX))
-    : resolve(suppliedTemporaryRoot);
-  if (suppliedTemporaryRoot !== undefined) {
-    assert.equal(dirname(temporaryRoot), resolve(tmpdir()));
-    assert.equal(basename(temporaryRoot).startsWith(TEMP_ROOT_PREFIX), true);
-    await mkdir(temporaryRoot, { recursive: true });
-  }
-  // Chromium may flush Preferences after the BrowserWindow is destroyed and
-  // recreate userData after the async cleanup below. Reap that narrow temp
-  // root again only once Electron has fully exited.
-  process.once('exit', () => {
-    rmSync(temporaryRoot, { recursive: true, force: true });
-  });
+  assert.equal(typeof suppliedTemporaryRoot, 'string', 'Run this test through scripts/tests/agent-browser-conversation.mjs');
+  const temporaryRoot = resolve(suppliedTemporaryRoot);
+  assert.equal(dirname(temporaryRoot), resolve(tmpdir()));
+  assert.equal(basename(temporaryRoot).startsWith(TEMP_ROOT_PREFIX), true);
+  // The Node runner owns this directory. Chromium can keep profile databases
+  // locked until the Electron process exits, even after its windows close.
   const userData = join(temporaryRoot, 'electron-user-data');
   const dshHome = join(temporaryRoot, 'dsh-home');
   const workspace = join(temporaryRoot, 'workspace');
@@ -1522,19 +1511,37 @@ async function run() {
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="push"]') !== null`), 'native docked presentation');
     await waitFor(() => rendererValue(window, `() => !document.querySelector('[data-sidebar-right-panel]').getAnimations().some(animation => animation.playState === 'running')`), 'native presentation transition to settle');
     assert.equal(await rendererValue(window, `() => [...document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-strip]')].every(strip => getComputedStyle(strip).paddingLeft === '10px')`), true, 'docked panes recover their usual tab inset');
-    const dragStart = await rendererValue(window, `() => {
+    const drag = await rendererValue(window, `() => {
       const host = document.querySelector('.minke-tabs-native-host:has(.minke-agent-browser__view)');
-      const chip = document.querySelector('[data-minke-tab-title="' + host.dataset.minkeTabInstance + '"]').closest('[data-dockkit-tab]');
-      const rect = chip.getBoundingClientRect();
-      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+      const title = document.querySelector('[data-minke-tab-title="' + host.dataset.minkeTabInstance + '"]');
+      title.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      const rect = title.getBoundingClientRect();
+      const surface = title.closest('[data-dockkit-surface]').getBoundingClientRect();
+      return {
+        start: { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) },
+        end: { x: Math.round(surface.left / 2), y: Math.round(innerHeight / 3) },
+        tabId: title.closest('[data-dockkit-tab]').dataset.dockkitTab,
+      };
     }`);
-    window.webContents.sendInputEvent({ type: 'mouseMove', ...dragStart });
-    window.webContents.sendInputEvent({ type: 'mouseDown', ...dragStart, button: 'left', clickCount: 1 });
-    window.webContents.sendInputEvent({ type: 'mouseMove', x: dragStart.x - 20, y: dragStart.y + 30, button: 'left' });
-    await new Promise(resolve => setTimeout(resolve, 50));
-    window.webContents.sendInputEvent({ type: 'mouseMove', x: 360, y: 240, button: 'left' });
-    await new Promise(resolve => setTimeout(resolve, 50));
-    window.webContents.sendInputEvent({ type: 'mouseUp', x: 360, y: 240, button: 'left', clickCount: 1 });
+    assert.ok(drag.end.x > 0, 'docked layout must leave room outside its surface to float a tab');
+    // Await Chromium input dispatch and DockKit pointer ownership. Fixed sleeps
+    // after unacknowledged native events can miss the press on CI displays.
+    const input = window.webContents.debugger;
+    input.attach('1.3');
+    try {
+      await input.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', ...drag.start });
+      await waitFor(() => rendererValue(window, `() => {
+        const tab = document.querySelector('[data-dockkit-tab="${drag.tabId}"]');
+        const hit = document.elementFromPoint(${drag.start.x}, ${drag.start.y});
+        return tab?.matches(':hover') && tab.contains(hit) && !hit.closest('[data-dockkit-tab-close]');
+      }`), 'hovered native tab before dragging');
+      await input.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', ...drag.start, button: 'left', buttons: 1, clickCount: 1 });
+      await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-tab="${drag.tabId}"][data-dockkit-pointer]') !== null`), 'native tab owns the drag pointer');
+      await input.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', ...drag.end, button: 'left', buttons: 1 });
+      await input.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', ...drag.end, button: 'left', buttons: 0, clickCount: 1 });
+    } finally {
+      input.detach();
+    }
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-float]') !== null`), 'native drag to floating panel');
     await assertRetainedBrowserPosition(window, 'floating panel');
     assert.equal(await rendererValue(window, `() => document.querySelector('.minke-agent-browser__guest') === window.__minkeTestGuest`), true);
@@ -1623,7 +1630,6 @@ async function run() {
     } else {
       process.env.DEEPSEEK_BASE_URL = previousBaseUrl;
     }
-    await rm(temporaryRoot, { recursive: true, force: true });
   }
 }
 
@@ -1640,8 +1646,6 @@ run()
     process.exitCode = 1;
   })
   .finally(() => {
-    // Let Chromium shut its profile down before the synchronous process-exit
-    // cleanup above runs. app.exit() can force native profile writers to race
-    // that cleanup and recreate the otherwise-deleted test directory.
+    // The parent reaps the profile only after Chromium has fully shut down.
     app.quit();
   });
