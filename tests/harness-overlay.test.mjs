@@ -531,11 +531,11 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.doesNotMatch(bundle, /IconKeyboardOutline16/u);
   assert.match(
     bundle,
-    /minke-overlay: \$\{placement\} tabs runtime/u,
+    /minke-overlay: \$\{[\w$]+\} tabs runtime/u,
   );
   assert.match(
     bundle,
-    /minke-overlay: \$\{placement\} Files tab renderer/u,
+    /minke-overlay: \$\{[\w$]+\} Files tab renderer/u,
   );
   assert.match(bundle, /minke-files-row/u);
   assert.match(bundle, /minke-files-tree/u);
@@ -552,12 +552,12 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.match(bundle, /file-type-rust/u);
   assert.match(
     bundle,
-    /minke-overlay: \$\{placement\} Terminal tab renderer/u,
+    /minke-overlay: \$\{[\w$]+\} Terminal tab renderer/u,
   );
   assert.match(bundle, /minke-terminal/u);
   assert.match(
     bundle,
-    /minke-overlay: \$\{placement\} Web tab renderer/u,
+    /minke-overlay: \$\{[\w$]+\} Web tab renderer/u,
   );
   assert.match(bundle, /minke-overlay: Web link tabs/u);
   assert.match(bundle, /minke-overlay: session header action styles/u);

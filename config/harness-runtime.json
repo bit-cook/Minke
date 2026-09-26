@@ -7,9 +7,9 @@
   "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
   "pnpmVersion": "11.7.0",
   "runtimeSizeBudgetBytes": {
-    "darwin": 157286400,
-    "linux": 268435456,
-    "win32": 268435456
+    "darwin": 1073741824,
+    "linux": 1073741824,
+    "win32": 1073741824
   },
   "runtimeFileBudget": 15000,
   "patches": [

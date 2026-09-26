@@ -23,6 +23,12 @@ const iconRoot = join(projectRoot, "resources", "icons");
 const appIcon = join(iconRoot, "icon.png");
 const sysPackageRoot = join(projectRoot, "packages", "sys");
 const macOSSigning = resolveMacOSSigningConfig(process.env);
+// electron-installer-debian supports compression; Forge's option type omits it.
+const debOptions = {
+  bin: "Minke",
+  icon: appIcon,
+  compression: "xz",
+};
 
 function logPackageStage(
   platform: string,
@@ -238,20 +244,20 @@ const config: ForgeConfig = {
     }),
     new MakerZIP({}, ["darwin"]),
     new MakerDMG({
-      format: "ULFO",
+      // appdmg supports ULMO (macOS 10.15+), below Electron's minimum OS.
+      // @ts-expect-error Remove when electron-installer-dmg declares ULMO; verified by making and mounting the DMG.
+      format: "ULMO",
       icon: join(iconRoot, "icon.icns"),
     }),
     new MakerRpm({
       options: {
         bin: "Minke",
         icon: appIcon,
+        compressionLevel: 6,
       },
     }),
     new MakerDeb({
-      options: {
-        bin: "Minke",
-        icon: appIcon,
-      },
+      options: debOptions,
     }),
   ],
   plugins: [

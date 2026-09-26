@@ -306,6 +306,7 @@ await Promise.all([
     ],
     outfile: join(overlayOutputRoot, "client.js"),
     bundle: true,
+    minify: (process.env.NODE_ENV ?? "production") === "production",
     format: "cjs",
     platform: "browser",
     target: "chrome120",

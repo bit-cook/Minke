@@ -356,23 +356,18 @@ test("the final package gate rejects file-count and app-size regressions", async
   });
 });
 
-test("package artifact policy requires positive budgets for every desktop platform", () => {
-  const policy = {
-    schemaVersion: 1,
-    appSizeBudgetBytes: {
-      darwin: 440401920,
-      linux: 536870912,
-      win32: 536870912,
-    },
-  };
+test("package artifact policy requires positive budgets for every desktop platform", async () => {
+  const policy = JSON.parse(await readFile(
+    new URL("../config/package-artifact.json", import.meta.url), "utf8",
+  ));
   assert.deepEqual(parsePackageArtifactPolicy(policy), policy);
   assert.throws(
     () =>
       parsePackageArtifactPolicy({
         schemaVersion: 1,
         appSizeBudgetBytes: {
-          darwin: 440401920,
-          win32: 536870912,
+          darwin: policy.appSizeBudgetBytes.darwin,
+          win32: policy.appSizeBudgetBytes.win32,
         },
       }),
     /size budget for linux/u,
